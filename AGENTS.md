@@ -1,5 +1,21 @@
 # Agent entry point
 
+## Publication safety (mandatory, read first)
+
+This repository is public. Every agent working here, including one that only installs or configures something, keeps
+the machine out of git:
+
+1. Machine-specific data stays in git-ignored places (`local/`, `.mcp.json`, `*.env`). Never copy it into tracked files,
+   commit messages, tags, release notes, pull requests or issues.
+2. Tracked files never contain absolute home or mount paths, user, host, company or project names,
+   private service addresses, tokens, keys, `.env` values, filled MCP configs or session logs. Use
+   placeholders (`<home>`, `/absolute/path/to/...`, `example.com`).
+3. A new tool, installer or config may write files into the working tree. Before the first commit
+   add such paths to `.gitignore` and check `git status --short --ignored`.
+4. Before a commit read `git diff --cached` and run `./scripts/self-check.sh`. Commit only with the author identity
+   the person set for this repository. Push and publish only when the person asks.
+5. In doubt whether something is private, do not commit it: ask the person.
+
 You maintain the tool agent hub on this machine. The public files describe the mechanism only.
 Everything about this machine lives in `local/` (git-ignored). Ask the person when something is
 ambiguous; never guess folder purposes or permissions.
