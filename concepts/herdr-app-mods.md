@@ -35,8 +35,11 @@ gone is dropped from its group once its machine's layout is readable again.
 
 One row per agent: its icon, name and every usage window the runtime reports (5h, 7d, a month, a
 spend cap), each a percent with a thin bar. The color follows usage: green, then the theme's
-working color from 70%, blocked color from 90%. Hover a window for used, left and the reset time;
-hover the name for the data's age; click the header to refresh (it refreshes every 10 seconds).
+working color from 70%, blocked color from 90%. Each window shows when it resets, in the
+system's date and time format (a time today, a weekday and time this week, a date later; read once
+from `Get-Culture` on Windows, `locale -k LC_TIME` elsewhere, because the mod engine has no `Intl`).
+An agent that has limit resets to spend (Codex grants them) shows their count next to its name.
+Hover a window for used, left and the full reset time; hover the name for the data's age; click the header to refresh (it refreshes every 10 seconds).
 Claude's limits come with its API answers, so they change when a session makes a request and the
 tap writes them at once. Rows whose data is older than 3 hours are dimmed. In the narrow rail each
 agent shows its icon, the tightest window's percent and bar. A window that renewed after the last reading
@@ -49,14 +52,14 @@ herdr machine (`source.json`, written by the installer). Settings are `[limits]`
 |---|---|
 | `agents` | which agents, in order; default `["claude", "codex"]` |
 | `show` | `used` (0% = nothing spent, default) or `left` (100% = all left) |
-| `[limits.commands]` | any other agent (Kimi, Cursor, Antigravity, ...): a command that prints `{"windows": [{"name", "used", "resets_at"}]}` |
+| `[limits.commands]` | any other agent (Kimi, Cursor, Antigravity, ...): a command that prints `{"windows": [{"name", "used", "resets_at"}]}`, optionally `"resets": {"available", "expires_at"}` |
 
 Built-in sources:
 
 | Agent | Source |
 |---|---|
 | Claude Code | `rate_limits` of the statusLine input. `limits.py statusline -- <old command>` wraps the statusLine, keeps one snapshot per session and runs the old command with the same input, so the visible line is unchanged. An idle session keeps showing what it saw last, maybe before a reset, so per window the latest `resets_at` wins and, within it, the highest usage. Snapshots of the GSD template's own tap are read too. |
-| Codex | the fresher of the newest `rate_limits` in `~/.codex/sessions` logs (written on every Codex turn, read on every refresh) and `codex app-server` `account/rateLimits/read` (also sees other machines; asked at most every 30 s, one start costs about a second) |
+| Codex | the fresher of the newest `rate_limits` in `~/.codex/sessions` logs (written on every Codex turn, read on every refresh) and `codex app-server` `account/rateLimits/read` (also sees other machines and the available limit resets, `rateLimitResetCredits`; asked at most every 30 s, one start costs about a second) |
 
 ## 3. Install
 

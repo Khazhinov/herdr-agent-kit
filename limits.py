@@ -13,9 +13,11 @@ Settings: `[limits]` of the registry (registry.example.toml):
   kimi = ["/path/to/kimi-limits"]     any other agent: a command printing
                                       {"windows": [{"name", "used", "resets_at"}]}
 
-Output: {"now", "show", "agents": [{"id", "seen", "windows", "error"}]}; a window
-is {"name", "used" (percent), "resets_at" (epoch s), "reset"}. `reset` true: the
-window renewed after the last reading, so `used` is unknown (null).
+Output: {"now", "show", "agents": [{"id", "seen", "windows", "resets", "error"}]};
+a window is {"name", "used" (percent), "resets_at" (epoch s), "reset"}. `reset`
+true: the window renewed after the last reading, so `used` is unknown (null).
+`resets`: null, or {"available", "expires_at"}: limit resets the account may
+spend (Codex grants them), the earliest expiry first.
 Standard library only.
 """
 import json
@@ -120,8 +122,12 @@ def codex_rpc(timeout=10.0):
                         raise RuntimeError(o["error"].get("message", "rpc error"))
                     rl = o["result"].get("rateLimits") or {}
                     wins = [rl.get(k) for k in ("primary", "secondary")]
-                    return [window(span(w.get("windowDurationMins")), w["usedPercent"], w.get("resetsAt"))
-                            for w in wins if w and w.get("usedPercent") is not None]
+                    credits = [c for c in (o["result"].get("rateLimitResetCredits") or {}).get("credits") or []
+                               if c.get("status") == "available"]
+                    return {"windows": [window(span(w.get("windowDurationMins")), w["usedPercent"], w.get("resetsAt"))
+                                        for w in wins if w and w.get("usedPercent") is not None],
+                            "resets": {"available": len(credits),
+                                       "expires_at": min((c["expiresAt"] for c in credits if c.get("expiresAt")), default=None)}}
         raise TimeoutError("codex app-server did not answer")
     finally:
         p.kill()
@@ -160,7 +166,7 @@ def codex(now):
     error = None
     if not rpc or now - rpc.get("seen", 0) >= RPC_EVERY:
         try:
-            rpc = {"seen": now, "windows": codex_rpc()}
+            rpc = {"seen": now, **codex_rpc()}
             cache.parent.mkdir(parents=True, exist_ok=True)
             tmp = cache.with_suffix(f".{os.getpid()}.tmp")
             tmp.write_text(json.dumps(rpc))
@@ -170,6 +176,8 @@ def codex(now):
     seen, wins = codex_logs()
     best = max([r for r in (rpc, {"seen": seen, "windows": wins}) if r and r.get("windows")],
                key=lambda r: r["seen"] or 0, default=None)
+    if best and rpc:
+        best = {**best, "resets": rpc.get("resets")}
     return (best, None) if best else (None, f"{error or 'app-server: no limits'}; no limits in session logs")
 
 
@@ -180,7 +188,7 @@ def command(argv, now):
     if r.returncode:
         return None, (r.stderr or r.stdout).strip()[-200:] or f"exit {r.returncode}"
     data = json.loads(r.stdout)
-    return {"seen": data.get("seen", now),
+    return {"seen": data.get("seen", now), "resets": data.get("resets"),
             "windows": [window(w["name"], w["used"], w.get("resets_at")) for w in data.get("windows", [])]}, None
 
 
@@ -209,9 +217,9 @@ def collect(now=None):
                 data, error = None, "no command in [limits.commands]"
         except Exception as e:  # one broken source must not hide the others
             data, error = None, str(e)[-200:]
-        entry = {"id": aid, "seen": None, "windows": [], "error": error}
+        entry = {"id": aid, "seen": None, "windows": [], "resets": None, "error": error}
         if data:
-            entry["seen"] = data.get("seen")
+            entry["seen"], entry["resets"] = data.get("seen"), data.get("resets")
             for w in data["windows"]:
                 gone = bool(w["resets_at"] and w["resets_at"] <= now)
                 entry["windows"].append({**w, "used": None if gone else w["used"], "reset": gone})

@@ -114,7 +114,8 @@ def main(argv):
     if not dry:
         for m in MODS:
             (home / "mods" / m).mkdir(parents=True, exist_ok=True)
-            for f in ("mod.json", "main.js"):  # mod.json first: a folder without it gets docked by the app
+            # mod.json first: a folder without it gets docked by the app
+            for f in ["mod.json", *sorted(p.name for p in (src / m).glob("*.svg")), "main.js"]:
                 shutil.copy2(src / m / f, home / "mods" / m / f)
         (home / "mods" / "agent-limits" / "source.json").write_text(
             json.dumps({"on": on, "argv": ["python3", str(KIT / "limits.py")]}, indent=2) + "\n")

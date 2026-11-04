@@ -63,11 +63,13 @@ class Limits(unittest.TestCase):
 
     def test_codex_rpc_is_cached(self):
         with mock.patch.object(limits, "CACHE", self.tmp / "cache"), \
-                mock.patch.object(limits, "codex_rpc", return_value=[limits.window("5h", 7, 9999)]) as rpc:
+                mock.patch.object(limits, "codex_rpc", return_value={"windows": [limits.window("5h", 7, 9999)],
+                                                                  "resets": {"available": 2, "expires_at": 5000}}) as rpc:
             limits.codex(1000)
             data, _ = limits.codex(1000 + limits.RPC_EVERY - 1)
             self.assertEqual(rpc.call_count, 1)
             self.assertEqual(data["windows"][0]["used"], 7.0)
+            self.assertEqual(data["resets"]["available"], 2)
             limits.codex(1000 + limits.RPC_EVERY)
             self.assertEqual(rpc.call_count, 2)
 
