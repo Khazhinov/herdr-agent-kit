@@ -1,18 +1,23 @@
 # Copy to local/registry.toml (git-ignored). One entry per folder on this machine that has MCP
-# servers configured inside it. Project owners see only description and capabilities.
+# servers configured inside it. `./tool_ask.py scan <root>` lists candidate folders.
 
 [modules.github]
+# One line for callers: what this module knows.
 description = "GitHub repositories, issues, pull requests, Actions runs"
-# Absolute folder with .mcp.json (for Claude workers) and the secrets it needs. Required.
+# Absolute folder whose own agent config holds the MCP servers and their secrets. Required.
 workdir = "~/tool-agents/github"
-# MCP server names in that folder; the worker is told to use only these.
+# Agent runtime that reads the folder's MCP config:
+#   claude   -> .mcp.json             codex -> .codex/config.toml      opencode -> opencode.json(c)
+runtime = "claude"
+# Cheapest model of that vendor that handles tool calls. Omit to use the runtime default.
+model = "haiku"
+# Servers the worker may use; empty or absent = every server of the folder.
 mcp = ["github"]
-# Short capability names for callers. Keep them few and concrete.
-capabilities = ["github.repo.read", "github.issue.read", "github.pr.read", "github.actions.read"]
-write_capabilities = ["github.issue.write", "github.pr.review", "github.pr.comment"]
+# Optional filter of tools shown to projects, "<server>:<glob>"; absent = all tools.
+# tools = ["github:get_*", "github:list_*", "github:search_*"]
 # Write requests are refused unless this is true. Set it only after the person agrees.
 allow_write = false
-# Optional, defaults shown:
-# command = ["claude", "--model", "haiku"]
-# reset = "/clear"
-# Extra worker rules: local/modules/<module>.md
+# Optional overrides:
+# command = ["some-agent", "--flag"]   # any herdr-core supported agent; then also set reset
+# reset = "/clear"                     # text that starts a fresh conversation
+# Extra worker rules: local/modules/<module>.md. Tool card: local/cards/<module>.md (refresh).
