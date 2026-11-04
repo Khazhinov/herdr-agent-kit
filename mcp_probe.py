@@ -107,7 +107,7 @@ def _rpc(mid, method, params=None):
 
 
 INIT = {"protocolVersion": PROTOCOL, "capabilities": {},
-        "clientInfo": {"name": "herdr-tool-agents", "version": "1"}}
+        "clientInfo": {"name": "herdr-agent-kit", "version": "1"}}
 
 
 def _list_stdio(cfg, cwd, timeout):
