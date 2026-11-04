@@ -21,7 +21,7 @@ reads a short answer file.
 |---|---|
 | Project context stays small | `.agent-tools/TOOLS.md`: tool names per module; parameters on demand (`card <module> <tool>`) |
 | Accurate tool descriptions | `refresh` starts each MCP server from the folder's own config and reads `tools/list`; no LLM involved |
-| Any runtime | `runtime = "claude" \| "codex" \| "opencode"` picks the config file, start command and reset; `command` covers others |
+| Any runtime | built in: `claude`, `codex`, `opencode` (start command, model flag, reset); any other: `command`, `reset`, `mcp_config`. MCP config shape is detected from content (`mcpServers`, `servers`, `mcp`, `[mcp_servers]`) |
 | Cheap model for tool calls | `model` of the module (for example the vendor's smallest model) |
 | Secrets stay in one folder | servers and tokens live only in the module folder; projects get a capability, not a token |
 | Projects follow registry changes | the registry remembers linked projects; `sync` rewrites their `TOOLS.md` when a card changed |
@@ -53,8 +53,9 @@ with an empty `local/`.
 1. Install [herdr-core](https://github.com/herdrdev/herdr-core) (`hc`) and the agent runtimes your
    module folders use.
 2. `mkdir -p local && cp registry.example.toml local/registry.toml`, remove the sample entry.
-3. `./tool_ask.py scan <root>` lists folders under `<root>` that have MCP configs of Claude Code
-   (`.mcp.json`), Codex (`.codex/config.toml`) or OpenCode (`opencode.json`), with server names.
+3. `./tool_ask.py scan <root>` lists folders under `<root>` with MCP configs in the default places of
+   Claude Code, Codex, OpenCode, Gemini CLI, Cursor and VS Code, with server names. Other runtimes:
+   register the folder with `mcp_config`.
 4. Register the folders you want (by hand or ask an agent in this folder: it follows `AGENTS.md`):
    id, `workdir`, `runtime`, `model`, `description`, optional `tools` filter, `allow_write`.
 5. `./tool_ask.py refresh --all`, then `./tool_ask.py list` and `./tool_ask.py card <module>`.

@@ -1,5 +1,7 @@
-"""Read MCP server configs of Claude Code, Codex and OpenCode folders and list
-their tools over the MCP protocol (stdio or streamable HTTP). Standard library only.
+"""Read MCP server configs of agent folders and list their tools over the MCP protocol
+(stdio or streamable HTTP). The file shape is detected from its content, so any runtime whose
+config uses one of the common shapes works; the runtime name only picks default file names.
+Standard library only.
 Secrets from configs are passed to the server process, never returned or printed."""
 import json
 import os
@@ -12,8 +14,10 @@ import urllib.request
 from pathlib import Path
 
 PROTOCOL = "2025-06-18"
+# Default config files per runtime. Any other runtime: set `mcp_config` in the registry.
 CONFIG_FILES = {"claude": [".mcp.json"], "codex": [".codex/config.toml"],
-                "opencode": ["opencode.json", "opencode.jsonc"]}
+                "opencode": ["opencode.json", "opencode.jsonc"], "gemini": [".gemini/settings.json"],
+                "cursor": [".cursor/mcp.json"], "vscode": [".vscode/mcp.json"]}
 
 
 def strip_jsonc(text):
@@ -51,30 +55,32 @@ def _expand(v):
     return v
 
 
-def servers(workdir, runtime):
+def _entry(c):
+    if c.get("enabled", True) is False or c.get("disabled") is True:
+        return None
+    if c.get("url") or c.get("httpUrl") or c.get("type") == "remote":
+        return {"url": c.get("url") or c.get("httpUrl"), "headers": c.get("headers") or c.get("http_headers") or {}}
+    cmd = c["command"]
+    return {"command": (list(cmd) if isinstance(cmd, list) else [cmd]) + list(c.get("args", [])),
+            "env": c.get("env") or c.get("environment") or {}}
+
+
+def read_config(path):
+    """{name: entry} from one file. Shapes: mcpServers (Claude, Gemini, Cursor and most others),
+    servers (VS Code), mcp (OpenCode), [mcp_servers] (Codex TOML)."""
+    p = Path(path)
+    data = tomllib.loads(p.read_text()) if p.suffix == ".toml" else json.loads(strip_jsonc(p.read_text()))
+    block = next((data[k] for k in ("mcpServers", "mcp_servers", "servers", "mcp") if isinstance(data.get(k), dict)), {})
+    return {n: e for n, c in block.items() if (e := _entry(c))}
+
+
+def servers(workdir, runtime, config=None):
     """{name: {"command": [...], "env": {...}} | {"url": ..., "headers": {...}}} for a folder."""
     wd = Path(workdir)
     found = {}
-    for rel in CONFIG_FILES.get(runtime, []):
-        p = wd / rel
-        if not p.exists():
-            continue
-        if runtime == "claude":
-            for n, c in json.loads(p.read_text()).get("mcpServers", {}).items():
-                found[n] = ({"url": c["url"], "headers": c.get("headers", {})} if c.get("url") else
-                            {"command": [c["command"], *c.get("args", [])], "env": c.get("env", {})})
-        elif runtime == "codex":
-            for n, c in tomllib.loads(p.read_text()).get("mcp_servers", {}).items():
-                if c.get("enabled", True) is False:
-                    continue
-                found[n] = ({"url": c["url"], "headers": c.get("http_headers", {})} if c.get("url") else
-                            {"command": [c["command"], *c.get("args", [])], "env": c.get("env", {})})
-        else:
-            for n, c in json.loads(strip_jsonc(p.read_text())).get("mcp", {}).items():
-                if c.get("enabled", True) is False:
-                    continue
-                found[n] = ({"url": c["url"], "headers": c.get("headers", {})} if c.get("type") == "remote" else
-                            {"command": list(c["command"]), "env": c.get("environment", {})})
+    for rel in ([config] if config else CONFIG_FILES.get(runtime, [])):
+        if (wd / rel).exists():
+            found.update(read_config(wd / rel))
     return _expand(found)
 
 

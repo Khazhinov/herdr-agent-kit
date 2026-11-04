@@ -1,5 +1,9 @@
 # Agent entry point
 
+Any agent runtime: this file is the single source of instructions. Runtimes that read another
+file name get a one-line shim (`CLAUDE.md` contains `@AGENTS.md`); if yours reads neither, read this
+file first and treat it as binding.
+
 ## Publication safety (mandatory, read first)
 
 This repository is public. Every agent working here, including one that only installs or configures something, keeps

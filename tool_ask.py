@@ -17,8 +17,8 @@ Calls
   tool_ask.py ask MODULE "REQUEST" [--write] [--timeout S] [--id ID]   answer file path on stdout
   tool_ask.py start|stop|status MODULE
 
-A module is a folder with MCP servers configured for one agent runtime (claude, codex, opencode or
-any command). Its worker runs in the herdr-core terminal `tool-<module>` started in that folder.
+A module is a folder with MCP servers configured for one agent runtime (built in: claude, codex,
+opencode; any other through `command`, `reset` and, when needed, `mcp_config`). Its worker runs in the herdr-core terminal `tool-<module>` started in that folder.
 Callers get the answer file, never the MCP schemas or the secrets. One request at a time per module.
 
 Exit codes: 0 ok, 1 failed/timeout, 2 usage/config, 3 busy, 4 needs a person, 5 write refused.
@@ -83,7 +83,7 @@ def load(module=None):
     base, flag, reset = RUNTIMES.get(m["runtime"], ([], None, None))
     if "command" not in m:
         if not base:
-            raise SystemExit(f"module {module}: runtime {m['runtime']!r} needs an explicit command")
+            raise SystemExit(f"module {module}: runtime {m['runtime']!r} needs `command` and `reset` in the registry")
         m["command"] = base + ([flag, m["model"]] if m.get("model") else [])
     m.setdefault("reset", reset)
     return reg, m
@@ -97,12 +97,12 @@ def card_path(module):
 
 def refresh(module):
     _, m = load(module)
-    found = mcp_probe.servers(m["workdir"], m["runtime"])
+    found = mcp_probe.servers(m["workdir"], m["runtime"], m.get("mcp_config"))
     names = m["mcp"] or list(found)
     parts = []
     for n in names:
         if n not in found:
-            parts.append(f"### {n}\n\nnot configured in {m['runtime']} config of the folder")
+            parts.append(f"### {n}\n\nnot configured in the folder's MCP config")
             continue
         try:
             tools = mcp_probe.list_tools(found[n], m["workdir"])
@@ -283,8 +283,8 @@ def start(module, m):
     wd = Path(m["workdir"])
     if not wd.is_dir():
         raise SystemExit(f"{wd} missing")
-    if m["runtime"] in RUNTIMES and not mcp_probe.servers(wd, m["runtime"]):
-        raise SystemExit(f"{wd}: no MCP servers in its {m['runtime']} config")
+    if not mcp_probe.servers(wd, m["runtime"], m.get("mcp_config")):
+        raise SystemExit(f"{wd}: no MCP servers found (runtime {m['runtime']}, mcp_config {m.get('mcp_config')})")
     argv = ["env", *[f"{k}={os.environ[k]}" for k in PASS_ENV if k in os.environ], *m["command"]]
     hc("run", "--bg", "--json", "--name", name, "--cwd", str(wd), "--no-parent",
        "--label", f"orch.tool={module}", "--", *argv)

@@ -139,6 +139,21 @@ class Cards(Base):
         self.assertEqual(s["b"]["url"], "http://h/mcp")
         self.assertNotIn("c", s)
         self.assertEqual(mcp_probe.detect(self.wd), {"claude": ["github"]})
+        (d / "x.toml").write_text('[mcp_servers.t]\ncommand = "z"\nargs = ["1"]\n')
+        self.assertEqual(mcp_probe.read_config(d / "x.toml"), {"t": {"command": ["z", "1"], "env": {}}})
+        (d / "vs.json").write_text('{"servers": {"v": {"type": "http", "url": "http://h/v"}}}')
+        self.assertEqual(mcp_probe.read_config(d / "vs.json")["v"]["url"], "http://h/v")
+
+    def test_any_runtime_with_command(self):
+        (self.wd / "agent.json").write_text((self.wd / ".mcp.json").read_text())
+        (self.wd / ".mcp.json").unlink()
+        self.reg.write_text(self.reg.read_text().replace('runtime = "claude"', 'runtime = "other"\n'
+                            'command = ["other-agent", "--small"]\nreset = "/reset"\nmcp_config = "agent.json"'))
+        self.assertEqual(self.run_cli("ask", "github", "x", "--id", "o1")[0], 0)
+        self.assertEqual(next(c for c in self.calls() if c[0] == "run")[-2:], ["other-agent", "--small"])
+        self.assertEqual([c for c in self.calls() if c[0] == "send"][0][-2], "/reset")
+        self.run_cli("refresh", "github")
+        self.assertIn("get_issue", (self.td / "local/cards/github.md").read_text())
 
 
 class Projects(Base):

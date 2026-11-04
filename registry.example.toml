@@ -9,6 +9,9 @@ workdir = "~/tool-agents/github"
 # Agent runtime that reads the folder's MCP config:
 #   claude   -> .mcp.json             codex -> .codex/config.toml      opencode -> opencode.json(c)
 runtime = "claude"
+# Start command, model flag and reset are built in for claude, codex and opencode. Any other runtime
+# (gemini, cursor-agent, aider, ...): set `command` and `reset` below. MCP config files are found by
+# default for claude, codex, opencode, gemini, cursor, vscode; otherwise set `mcp_config`.
 # Cheapest model of that vendor that handles tool calls. Omit to use the runtime default.
 model = "haiku"
 # Servers the worker may use; empty or absent = every server of the folder.
@@ -18,6 +21,7 @@ mcp = ["github"]
 # Write requests are refused unless this is true. Set it only after the person agrees.
 allow_write = false
 # Optional overrides:
-# command = ["some-agent", "--flag"]   # any herdr-core supported agent; then also set reset
-# reset = "/clear"                     # text that starts a fresh conversation
+# command = ["some-agent", "--model", "small"]   # full argv; overrides runtime and model
+# reset = "/clear"                               # text that starts a fresh conversation
+# mcp_config = ".agent/mcp.json"                 # file relative to workdir; shape detected from content
 # Extra worker rules: local/modules/<module>.md. Tool card: local/cards/<module>.md (refresh).
