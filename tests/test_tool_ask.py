@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import importlib, io, json, os, sys, tempfile, unittest
+import importlib, io, json, os, sys, tempfile, time, unittest
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
@@ -22,9 +22,12 @@ class Base(unittest.TestCase):
         self.reg.write_text((HUB / "registry.example.toml").read_text().replace("~/tool-agents/github", str(self.wd)))
         os.environ.update({"ORCH_HC": f"{sys.executable} {HUB / 'tests/fake_hc.py'}",
                            "FAKE_HC_STATE": str(self.td / "hc.json"),
-                           "HERDR_TOOL_AGENTS_REGISTRY": str(self.reg),
-                           "HERDR_TOOL_AGENTS_CACHE": str(self.td / "cache"),
+                           "HERDR_AGENT_KIT_REGISTRY": str(self.reg),
+                           "HERDR_AGENT_KIT_CACHE": str(self.td / "cache"),
                            "FAKE_HC_ANSWER": "DONE", "FAKE_HC_STATUS": "idle", "FAKE_TOKEN_SRC": "t0ken"})
+        os.environ["HERDR_AGENT_KIT_GRACE"] = "0"
+        for k in ("HC_TERMINAL_ID", "FAKE_HC_CALLER", "FAKE_HC_CALLER_SPACE", "FAKE_HC_SILENT", "FAKE_HC_DIE"):
+            os.environ.pop(k, None)
         import tool_ask
         self.t = importlib.reload(tool_ask)
 
@@ -36,6 +39,9 @@ class Base(unittest.TestCase):
 
     def calls(self):
         return json.loads((self.td / "hc.json").read_text())["calls"]
+
+    def state(self):
+        return json.loads((self.td / "hc.json").read_text())
 
 
 class Ask(Base):
@@ -81,7 +87,7 @@ class Ask(Base):
 
     def test_start_waits_for_loading_worker(self):
         os.environ["FAKE_HC_STATUS"] = "working"
-        self.t.start("github", self.t.load("github")[1])
+        self.t.start("tool-github", "github", str(self.wd), self.t.load("github")[1]["command"])
         self.assertIn("wait", [c[0] for c in self.calls()])
         os.environ["FAKE_HC_STATUS"] = "idle"
 
@@ -109,6 +115,46 @@ class Ask(Base):
         self.assertIn("missing", str(e.exception))
 
 
+class Placement(Base):
+    """Every worker is shown in Herdr App: caller's space, or its own folder's space."""
+    def labels(self):
+        return self.state()["terms"]["tool-github"].get("labels", {})
+
+    def test_caller_space(self):
+        os.environ.update({"HC_TERMINAL_ID": "t9", "FAKE_HC_CALLER": "t9", "FAKE_HC_CALLER_SPACE": "spCALLER"})
+        self.assertEqual(self.run_cli("ask", "github", "x", "--id", "c1")[0], 0)
+        self.assertEqual(self.labels()["herdr.space"], "spCALLER")
+
+    def test_module_space_by_live_folder(self):
+        # the App names a space after the live folder of its tab; `folder` may be stale
+        st = {"terms": {"user": {"address": "t7", "name": "user", "cwd": "/elsewhere", "state": "live",
+                                 "foreground": {"cwd": str(self.wd)}}}, "calls": [],
+              "doc": {"version": 1, "value": {"spaces": [
+                  {"id": "spSTALE", "folder": str(self.wd), "tabs": []},
+                  {"id": "spLIVE", "folder": "/elsewhere", "tabs": [{"root": {"children": [
+                      {"type": "block", "content": {"terminal": "t7"}}]}}]}]}}}
+        (self.td / "hc.json").write_text(json.dumps(st))
+        self.assertEqual(self.run_cli("ask", "github", "x", "--space", "module", "--id", "l1")[0], 0)
+        self.assertEqual(self.labels()["herdr.space"], "spLIVE")
+        self.assertEqual(len(self.state()["doc"]["value"]["spaces"]), 2)
+
+    def test_module_space_found_then_created(self):
+        st = {"terms": {}, "calls": [], "doc": {"version": 3, "value": {"spaces": [
+            {"id": "spOWN", "name": "", "folder": str(self.wd), "tabs": []}]}}}
+        (self.td / "hc.json").write_text(json.dumps(st))
+        self.assertEqual(self.run_cli("ask", "github", "x", "--space", "module", "--id", "m1")[0], 0)
+        self.assertEqual(self.labels()["herdr.space"], "spOWN")
+        self.run_cli("stop", "github")
+        st = self.state()
+        st["doc"]["value"]["spaces"] = []
+        (self.td / "hc.json").write_text(json.dumps(st))
+        self.assertEqual(self.run_cli("ask", "github", "x", "--id", "m2")[0], 0)  # no caller space: own space
+        space = self.state()["doc"]["value"]["spaces"][0]
+        self.assertEqual(space["folder"], os.path.realpath(self.wd))
+        self.assertEqual(space["tabs"][0]["root"]["children"][0]["content"]["terminal"], "t1")
+        self.assertEqual(self.labels()["herdr.space"], space["id"])
+
+
 class Cards(Base):
     def test_refresh_builds_card_without_secrets(self):
         rc, out, _ = self.run_cli("refresh", "github")
@@ -124,11 +170,12 @@ class Cards(Base):
 
     def test_broken_server_is_reported_not_fatal(self):
         os.environ["FAKE_TOKEN_SRC"] = "wrong"
-        self.run_cli("refresh", "--all")
+        out = self.run_cli("refresh", "--all")[1]
+        self.assertIn("docs: error: module docs:", out)  # a missing manifest does not stop the others
         self.assertIn("unavailable: no token", (self.td / "local/cards/github.md").read_text())
 
     def test_tools_filter(self):
-        self.reg.write_text(self.reg.read_text() + 'tools = ["github:get_*"]\n')
+        self.reg.write_text(self.reg.read_text().replace('mcp = ["github"]', 'mcp = ["github"]\ntools = ["github:get_*"]'))
         self.run_cli("refresh", "github")
         card = (self.td / "local/cards/github.md").read_text()
         self.assertIn("get_issue", card)
@@ -174,8 +221,10 @@ class Projects(Base):
         rc, out, _ = self.run_cli("link", str(self.pr), "github")
         self.assertEqual(rc, 0)
         tools = (self.pr / ".agent-tools/TOOLS.md").read_text()
-        self.assertIn("## `github` - GitHub", tools)
-        self.assertIn("github (2 tools): `close_issue`*, `get_issue`", tools)
+        self.assertIn("| `github` | mcp | GitHub repositories, issues, pull requests, Actions runs | "
+                      "`.agent-tools/github.md` | - |", tools)
+        details = (self.pr / ".agent-tools/github.md").read_text()
+        self.assertIn("github (2 tools): `close_issue`*, `get_issue`", details)
         self.assertIn("/.agent-tools/", (self.pr / ".git/info/exclude").read_text())
         for f in ("AGENTS.md", "CLAUDE.md"):
             text = (self.pr / f).read_text()
@@ -186,16 +235,144 @@ class Projects(Base):
         self.assertIn("same", self.run_cli("sync")[1])
         (self.td / "local/cards/github.md").write_text("### github (1 tools)\n\n- `new_tool()` - New.\n")
         self.assertIn("changed", self.run_cli("sync", "--dry-run")[1])
-        self.assertNotIn("new_tool", (self.pr / ".agent-tools/TOOLS.md").read_text())
+        self.assertNotIn("new_tool", (self.pr / ".agent-tools/github.md").read_text())
         self.assertIn("changed", self.run_cli("sync")[1])
-        self.assertIn("new_tool", (self.pr / ".agent-tools/TOOLS.md").read_text())
+        self.assertIn("new_tool", (self.pr / ".agent-tools/github.md").read_text())
         self.run_cli("unlink", str(self.pr))
         self.assertFalse((self.pr / ".agent-tools/TOOLS.md").exists())
+        self.assertFalse((self.pr / ".agent-tools/github.md").exists())
         self.assertEqual(json.loads((self.td / "local/links.json").read_text()), {})
+
+    def test_old_pointer_is_replaced(self):
+        (self.pr / "AGENTS.md").write_text("# P\n\n" + self.t.OLD_POINTERS[0] + "\n")
+        self.run_cli("link", str(self.pr), "github")
+        text = (self.pr / "AGENTS.md").read_text()
+        self.assertNotIn(self.t.OLD_POINTERS[0], text)
+        self.assertEqual(text.count(self.t.POINTER), 1)
 
     def test_scan(self):
         out = self.run_cli("scan", str(self.td))[1]
         self.assertIn(f"{self.wd}  [registered as github]  claude: github", out)
+
+
+class Service(Base):
+    def setUp(self):
+        super().setUp()
+        self.sd = self.td / "docs"
+        self.sd.mkdir()
+        (self.sd / "agent-service.toml").write_text((HUB / "examples/service-docs/agent-service.toml").read_text())
+        self.reg.write_text(self.reg.read_text().replace("~/tool-agents/docs", str(self.sd)))
+        os.environ.pop("FAKE_HC_DIE", None)
+
+    def run_of(self):
+        return next(c for c in self.calls() if c[0] == "run")
+
+    def test_card_has_signatures(self):
+        self.assertEqual(self.run_cli("refresh", "docs")[0], 0)
+        card = self.run_cli("card", "docs", "draft")[1]
+        self.assertIn("- `draft(task: string, source: path, section?: string)` - Draft", card)
+        self.assertIn("Profiles: writer > default.", card)
+        self.assertIn("  - `source`: input file", card)
+        self.assertIn("Profiles: reviewer > writer > default.", self.run_cli("card", "docs", "review")[1])
+        self.assertIn("[service, card]", self.run_cli("list")[1])
+        self.assertIn("- `publish(task: string)` [write]", self.run_cli("snippet", "docs")[1])
+
+    def test_call_uses_profile_and_absolute_paths(self):
+        rc, out, err = self.run_cli("call", "docs", "draft", "--arg", "task=t1", "--arg", "source=in.md", "--id", "s1")
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(out.strip().endswith("docs/s1/answer.md"))
+        run = self.run_of()
+        self.assertIn("tool-docs-writer", run)
+        self.assertEqual(run[-5:], ["claude", "--model", "sonnet", "--effort", "high"])
+        req = [c for c in self.calls() if c[0] == "send"][1][-2]
+        self.assertIn(f"- source = {Path('in.md').resolve()}", req)
+        self.assertIn("only at: */drafts/**", req)
+        self.assertIn("External systems: read-only", req)
+
+    def test_codex_effort_and_claude_fallback_model(self):
+        self.reg.write_text(self.reg.read_text() + '[modules.docs.profiles.reviewer]\nmodel = "m1"\n')
+        self.assertEqual(self.run_cli("call", "docs", "review", "--arg", "document=d.md", "--id", "r1")[0], 0)
+        self.assertEqual(self.run_of()[-5:], ["codex", "-m", "m1", "-c", 'model_reasoning_effort="medium"'])
+        argv = self.t.command({"runtime": "claude", "model": "opus"}, [{"model": "sonnet"}, {"runtime": "codex", "model": "x"}])
+        self.assertEqual(argv, ["claude", "--model", "opus", "--fallback-model", "sonnet"])
+
+    def test_default_profile_and_opencode_effort(self):
+        self.assertEqual(self.run_cli("call", "docs", "draft", "--arg", "task=t", "--arg", "source=x",
+                                      "--profile", "default", "--id", "d1")[0], 0)
+        self.assertEqual(self.run_of()[-1], "claude")
+        self.assertEqual(self.t.command({"runtime": "opencode", "model": "p/m"}), ["opencode", "-m", "p/m"])
+        self.reg.write_text(self.reg.read_text() + '[modules.docs.profiles.writer]\nruntime = "opencode"\n')
+        with self.assertRaises(SystemExit) as e:
+            self.run_cli("refresh", "docs")
+        self.assertIn("no effort flag", str(e.exception))
+
+    def test_bad_arguments(self):
+        for args in (["--arg", "task=t"], ["--arg", "task=t", "--arg", "source=x", "--arg", "nope=1"]):
+            with self.assertRaises(SystemExit) as e:
+                self.run_cli("call", "docs", "draft", *args)
+            self.assertIn("signature: draft(task: string", str(e.exception))
+        with self.assertRaises(SystemExit):
+            self.run_cli("ask", "docs", "x")
+
+    def test_external_function_needs_write(self):
+        self.assertEqual(self.run_cli("call", "docs", "publish", "--arg", "task=t")[0], 5)
+        self.assertEqual(self.run_cli("call", "docs", "publish", "--arg", "task=t", "--write")[0], 5)
+
+    def test_profile_failure_lists_fallbacks(self):
+        os.environ["FAKE_HC_DIE"] = "1"
+        rc, _, err = self.run_cli("call", "docs", "review", "--arg", "document=d", "--id", "p1")
+        os.environ.pop("FAKE_HC_DIE")
+        self.assertEqual(rc, 6)
+        self.assertIn("retry with: --profile writer, --profile default", err)
+
+    def test_async_then_wait_and_result(self):
+        os.environ["FAKE_HC_ANSWER"] = ""
+        rc, out, _ = self.run_cli("call", "docs", "draft", "--arg", "task=t", "--arg", "source=x", "--async", "--id", "a1")
+        self.assertEqual((rc, out.strip()), (0, "a1"))
+        self.assertEqual(self.run_cli("result", "docs", "a1")[0], 3)  # fresh task, no answer yet
+        (self.td / "cache/docs/a1/answer.md").write_text("v03 ready\nDONE\n")
+        rc, out, _ = self.run_cli("wait", "docs", "a1")
+        self.assertEqual(rc, 0)
+        self.assertTrue(out.strip().endswith("docs/a1/answer.md"))
+        self.assertEqual(self.run_cli("result", "docs", "a1")[0], 0)
+
+    def test_silent_turn_is_reported_with_screen(self):
+        os.environ["FAKE_HC_SILENT"] = "1"
+        rc, _, err = self.run_cli("call", "docs", "draft", "--arg", "task=t", "--arg", "source=x", "--id", "q1")
+        self.assertEqual(rc, 6)
+        self.assertIn("Which task do you mean?", err)
+        rc, _, err = self.run_cli("ask", "github", "x", "--id", "q2")
+        self.assertEqual(rc, 1)
+        self.assertIn("without a DONE/FAILED line", err)
+
+    def test_async_watcher_is_child_of_caller(self):
+        os.environ.update({"HC_TERMINAL_ID": "t9", "FAKE_HC_ANSWER": ""})
+        rc, out, err = self.run_cli("call", "docs", "draft", "--arg", "task=t", "--arg", "source=x", "--async", "--id", "w1")
+        self.assertEqual(rc, 0)
+        run = [c for c in self.calls() if c[0] == "run" and "w-docs-w1" in c][0]
+        self.assertEqual(run[run.index("--parent") + 1], "t9")
+        self.assertEqual(run[-3:], ["wait", "docs", "w1"])
+        self.assertIn("herdr notes you", err)
+
+    def test_manifest_change_reaches_linked_projects(self):
+        pr = self.td / "proj"
+        pr.mkdir()
+        self.run_cli("link", str(pr), "docs")
+        self.assertIn("draft(task: string", (pr / ".agent-tools/docs.md").read_text())
+        man = self.sd / "agent-service.toml"
+        man.write_text(man.read_text() + '\n[functions.summary]\ndescription = "Short summary"\n')
+        os.utime(man, (time.time() + 5, time.time() + 5))
+        rc, _, err = self.run_cli("call", "docs", "review", "--arg", "document=d", "--id", "n1")
+        self.assertEqual(rc, 0)
+        self.assertIn("manifest changed (", err)
+        self.assertIn("added `summary`", err)
+        details = (pr / ".agent-tools/docs.md").read_text()
+        self.assertIn("summary()", details)
+        self.assertIn("## Recent changes", details)
+        self.assertIn("added `summary`", (pr / ".agent-tools/TOOLS.md").read_text())
+
+    def test_scan_finds_manifest(self):
+        self.assertIn(f"{self.sd}  [registered as docs]  service: agent-service.toml", self.run_cli("scan", str(self.td))[1])
 
 
 class PublicFiles(unittest.TestCase):

@@ -1,7 +1,8 @@
-# Copy to local/registry.toml (git-ignored). One entry per folder on this machine that has MCP
-# servers configured inside it. `./tool_ask.py scan <root>` lists candidate folders.
+# Copy to local/registry.toml (git-ignored). One entry per folder on this machine: a folder with MCP
+# servers (kind mcp) or a service repository (kind service). `./tool_ask.py scan <root>` lists candidates.
 
 [modules.github]
+# kind = "mcp" (default): a folder with MCP servers, called with `tool_ask.py ask github "<request>"`.
 # One line for callers: what this module knows.
 description = "GitHub repositories, issues, pull requests, Actions runs"
 # Absolute folder whose own agent config holds the MCP servers and their secrets. Required.
@@ -20,8 +21,26 @@ mcp = ["github"]
 # tools = ["github:get_*", "github:list_*", "github:search_*"]
 # Write requests are refused unless this is true. Set it only after the person agrees.
 allow_write = false
+# Where Herdr App shows the worker: "caller" (default: the space of the calling agent) or "module"
+# (the space whose tabs work in `workdir`, created when missing). `--space` overrides it per call.
+# space = "caller"
+# Optional: effort = "low" (claude, codex), passed with the runtime's effort flag.
 # Optional overrides:
 # command = ["some-agent", "--model", "small"]   # full argv; overrides runtime and model
 # reset = "/clear"                               # text that starts a fresh conversation
 # mcp_config = ".agent/mcp.json"                 # file relative to workdir; shape detected from content
 # Extra worker rules: local/modules/<module>.md. Tool card: local/cards/<module>.md (refresh).
+
+[modules.docs]
+# A repository with its own agent procedures, called by function (`tool_ask.py call docs <function>`).
+# Functions, parameters and profiles come from `agent-service.toml` in the folder
+# (sample: examples/service-docs/agent-service.toml). `description` here overrides the manifest's.
+kind = "service"
+workdir = "~/tool-agents/docs"
+# manifest = "agent-service.toml"                # file relative to workdir
+allow_write = false
+space = "module"   # long tasks are easier to follow in the repository's own space
+# Machine override of a manifest profile, for example when a model is renamed or a runtime is missing:
+# [modules.docs.profiles.reviewer]
+# runtime = "claude"
+# model = "sonnet"

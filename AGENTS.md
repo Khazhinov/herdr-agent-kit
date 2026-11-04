@@ -20,9 +20,11 @@ the machine out of git:
    the person set for this repository. Push and publish only when the person asks.
 5. In doubt whether something is private, do not commit it: ask the person.
 
-You maintain the MCP registry of this machine. Public files describe the mechanism only;
+You maintain the registry of this machine: folders with MCP servers (kind `mcp`) and service
+repositories with `agent-service.toml` (kind `service`). Public files describe the mechanism only;
 everything about this machine lives in `local/`. Ask the person when something is ambiguous; never
-guess folder purposes or permissions. Full procedures: `README.md`.
+guess folder purposes, permissions, models or functions. Catalog: `README.md`; procedures and rules:
+`concepts/`.
 
 Start of every session: read `local/README.md` if it exists (machine facts, registry state, scan
 results, open checks); if `local/` is missing, set it up as `README.md`, "Set up on a machine" says.
@@ -44,12 +46,32 @@ Record new machine facts there, never in tracked files.
    Then one read-only `ask` per new module proves the worker path.
 6. Module-specific worker rules (scope limits, things never to print): `local/modules/<id>.md`.
 
+## Register service repositories
+
+1. Read the repository's own agent instructions and propose functions to the person: name, one-line
+   description, typed `params`, `returns`, `writes` (paths inside the repository), `external`,
+   profiles (runtime, model, effort: ask the person, do not invent model names). Format:
+   `concepts/service-repos.md`, sample `examples/service-docs/agent-service.toml`.
+2. Write `agent-service.toml` into that repository only after the person agrees; committing it follows
+   that repository's own rules.
+3. Add `[modules.<id>] kind = "service"`, `workdir`, `allow_write = false` unless the person says
+   otherwise, `space` if the person wants the worker in the repository's own space.
+4. `./tool_ask.py refresh <id>` (validates the manifest), `card <id>`, then one read-only `call`.
+
 ## Projects
 
 - Link: `./tool_ask.py link <project> <id>...`. Show the person which tracked files changed in the
-  project (`AGENTS.md`, `CLAUDE.md`): only a pointer line without paths.
-- After any registry or card change: `./tool_ask.py sync --dry-run`, then `sync`; report missing
-  projects and stale modules.
+  project (`AGENTS.md`, `CLAUDE.md`): only a pointer line without paths. Files under
+  `.agent-tools/` are machine-local: `concepts/linked-projects.md`.
+- After any registry or MCP card change: `./tool_ask.py sync --dry-run`, then `sync`; report missing
+  projects and stale modules. Service manifests propagate by themselves on `call`, `card`, `link`
+  and `sync`.
+
+## Workers
+
+- Workers are visible in Herdr App and persistent. Do not stop or kill a worker the person may be
+  watching unless they ask; never answer a worker's dialog on the person's behalf.
+- Completion is the answer file marker; see `concepts/herdr-calls.md` before changing how waits work.
 
 ## Change this repository
 

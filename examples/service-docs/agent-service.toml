@@ -1,0 +1,55 @@
+# Service manifest: put it into the root of a repository that other projects call through
+# herdr-agent-kit (`tool_ask.py call <module> <function>`). The repository owner keeps it;
+# the registry of each machine only points at the folder and may override profiles.
+
+[service]
+description = "Documents: requirements, design notes, docx export"
+# Profile of functions that name none. A built-in profile `default` always exists: the runtime of
+# this profile without model and effort, so the runtime's own defaults apply.
+profile = "writer"
+
+# A profile is one way to start the worker: runtime, model, effort. All keys are optional;
+# runtime defaults to claude. Any other runtime: `command` (full argv) and `reset`.
+#   claude    --model <model> --effort <low|medium|high|xhigh|max>
+#   codex     -m <model> -c model_reasoning_effort="<level>"
+#   opencode  -m <provider/model>; no effort flag in interactive mode: set the variant in opencode.json
+[profiles.writer]
+runtime = "claude"
+model = "sonnet"
+effort = "high"
+
+[profiles.reviewer]
+runtime = "codex"
+effort = "medium"
+# model = "<model id>"   # omit to use the runtime default
+
+[functions.draft]
+description = "Draft a document section from a source file"
+# How the worker does it: a skill, a command or a short procedure of this repository.
+run = "Follow the task life cycle of this repository's agent instructions."
+params = [
+  {name = "task", type = "string", required = true, description = "task folder name"},
+  {name = "source", type = "path", required = true, description = "input file of the calling project"},
+  {name = "section", type = "string", description = "section to draft; whole document when absent"},
+]
+returns = "path of the new document version and a list of open questions"
+# Paths inside this repository the function may change without --write.
+writes = ["*/drafts/**"]
+timeout = 3600
+
+[functions.review]
+description = "Review a document for consistency and open questions"
+run = "Read the document and list contradictions, gaps and unverified data."
+params = [{name = "document", type = "path", required = true, description = "document to review"}]
+returns = "findings, one per line"
+# Order of profiles to try; the caller retries another one on exit code 6.
+profiles = ["reviewer", "writer"]
+timeout = 1200
+
+[functions.publish]
+description = "Upload the current version to the document storage"
+run = "Use the storage tools of this repository."
+params = [{name = "task", type = "string", required = true}]
+returns = "link to the uploaded file"
+# Changes an external system: callers need --write and the module allow_write = true.
+external = true
