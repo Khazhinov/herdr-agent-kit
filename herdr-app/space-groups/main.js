@@ -326,8 +326,7 @@ export default class Spaces extends View {
   // The rows, under a header per machine once one isn't this computer.
   grouped(t, collapsed) {
     const rows = this.ordered();
-    // The rail stays a flat list of numbers; the full sidebar shows the groups.
-    const draw = (list, m) => (collapsed ? list.map((r) => this.compact(r, t)) : this.tree(list, m, t));
+    const draw = (list, m) => this.tree(list, m, t, collapsed);
     this.of = {};
     this.anchor = {};
     const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
@@ -443,7 +442,7 @@ export default class Spaces extends View {
   }
 
   // One machine's rows: its groups (subgroups first, then spaces), then the spaces in no group.
-  tree(list, m, t) {
+  tree(list, m, t, rail = false) {
     const s = load();
     // Forget spaces that are gone, only while their machine's layout is readable.
     const ready = machines().some((k) => k.name === m && k.layout === "ready") || (m === null && !machines().length);
@@ -467,14 +466,14 @@ export default class Spaces extends View {
       for (const g of kids(s, parent, m)) {
         const rows = all(g);
         const status = rows.map((r) => r.w.status).reduce((a, b) => ((RANK[b] ?? 0) > (RANK[a] ?? 0) ? b : a), null);
-        out.push(this.groupRow(g, depth, rows.length, status, t));
+        out.push(rail ? this.groupRail(g, rows.length, status, t) : this.groupRow(g, depth, rows.length, status, t));
         if (g.folded) continue;
         walk(g.id, depth + 1);
-        for (const r of inside(g)) out.push(this.row({ ...r, depth: depth + 1 }, t));
+        for (const r of inside(g)) out.push(rail ? this.compact(r, t) : this.row({ ...r, depth: depth + 1 }, t));
       }
     };
     walk(null, 0);
-    for (const r of list) if (!this.of[r.w.id]) out.push(this.row(r, t));
+    for (const r of list) if (!this.of[r.w.id]) out.push(rail ? this.compact(r, t) : this.row(r, t));
     return out;
   }
 
@@ -508,6 +507,19 @@ export default class Spaces extends View {
       .child(div().flex_1().min_w(0).truncate().font_medium().text_color(t.foreground).child(g.name))
       .when(Boolean(mark), (el) => el.child(mark))
       .child(div().flex_none().text_size(11.5).text_color(t.dim).child(String(count)));
+  }
+
+  // The rail: a group is a thin rule with its chevron and status; click folds it.
+  groupRail(g, count, status, t) {
+    const mark = status === "working"
+      ? svg("mods/workspace-chrome/spinner.svg").size(10).flex_none().text_color(t.working).spin(900)
+      : status && status !== "idle" ? div().size(5).flex_none().rounded(3).bg(t[status]) : null;
+    return h_flex().id(`group-${g.id}`).h(20).flex_none().mt(4).justify_center().gap(3).items_center().rounded(5)
+      .text_color(t.dim).hover((s) => s.bg(t.hover)).tooltip(`${g.name}: ${count} space${count === 1 ? "" : "s"}${status ? `, ${status}` : ""}`)
+      .on_click(() => this.edit((s) => { const x = s.groups.find((k) => k.id === g.id); if (x) x.folded = !x.folded; }))
+      .child(svg(`mods/workspace-chrome/chevron-${g.folded ? "right" : "down"}.svg`).size(10))
+      .when(Boolean(mark), (el) => el.child(mark))
+      .when(!mark && g.folded, (el) => el.child(div().text_size(9.5).child(String(count))));
   }
 
   press(target) {

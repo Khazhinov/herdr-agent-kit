@@ -22,7 +22,8 @@ their checkout, sections per machine, git branch and ahead/behind, the space men
 
 A group row shows how many spaces it holds, subgroups included, and the most urgent agent
 status inside: spinner (working), colored dot (blocked, done), hollow dot (only idle agents).
-Groups belong to one machine; a drag never crosses machines. The narrow rail stays a flat list.
+Groups belong to one machine; a drag never crosses machines. In the narrow rail a group is a
+chevron row with its status (click folds it) and its spaces keep their numbers.
 
 Groups are a view of this screen. They live in the app's shared state (`shared("space-groups")`),
 never in the core document `herdr-app`. Space ids, names, folders and tabs stay as they are, so
@@ -35,8 +36,10 @@ gone is dropped from its group once its machine's layout is readable again.
 One row per agent: its icon, name and every usage window the runtime reports (5h, 7d, a month, a
 spend cap), each a percent with a thin bar. The color follows usage: green, then the theme's
 working color from 70%, blocked color from 90%. Hover a window for used, left and the reset time;
-hover the name for the data's age; click the header to refresh (it refreshes every minute).
-Rows whose data is older than 3 hours are dimmed. A window that renewed after the last reading
+hover the name for the data's age; click the header to refresh (it refreshes every 10 seconds).
+Claude's limits come with its API answers, so they change when a session makes a request and the
+tap writes them at once. Rows whose data is older than 3 hours are dimmed. In the narrow rail each
+agent shows its icon, the tightest window's percent and bar. A window that renewed after the last reading
 shows `new`: nothing proves its usage yet.
 
 `limits.py` (standard library) collects the data where the kit lives; the mod runs it on that
@@ -53,7 +56,7 @@ Built-in sources:
 | Agent | Source |
 |---|---|
 | Claude Code | `rate_limits` of the statusLine input. `limits.py statusline -- <old command>` wraps the statusLine, keeps one snapshot per session and runs the old command with the same input, so the visible line is unchanged. An idle session keeps showing what it saw last, maybe before a reset, so per window the latest `resets_at` wins and, within it, the highest usage. Snapshots of the GSD template's own tap are read too. |
-| Codex | `codex app-server`, `account/rateLimits/read`; when that fails, the newest `rate_limits` in `~/.codex/sessions` logs |
+| Codex | the fresher of the newest `rate_limits` in `~/.codex/sessions` logs (written on every Codex turn, read on every refresh) and `codex app-server` `account/rateLimits/read` (also sees other machines; asked at most every 30 s, one start costs about a second) |
 
 ## 3. Install
 

@@ -145,12 +145,32 @@ def codex_logs():
     return None, []
 
 
+RPC_EVERY = 30  # s; one app-server start costs about a second
+
+
 def codex(now):
+    """The fresher of two readings: the session logs (written on every Codex turn
+    here, read on every call) and the live account limits (cached RPC_EVERY s:
+    they also see usage from other machines)."""
+    cache = CACHE / "limits" / "codex-rpc.json"
     try:
-        return {"seen": now, "windows": codex_rpc()}, None
-    except Exception as e:  # no binary, logged out, protocol change
-        seen, wins = codex_logs()
-        return ({"seen": seen, "windows": wins}, None) if wins else (None, f"app-server: {e}; no limits in session logs")
+        rpc = json.loads(cache.read_text())
+    except (OSError, ValueError):
+        rpc = None
+    error = None
+    if not rpc or now - rpc.get("seen", 0) >= RPC_EVERY:
+        try:
+            rpc = {"seen": now, "windows": codex_rpc()}
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache.with_suffix(f".{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(rpc))
+            tmp.replace(cache)
+        except Exception as e:  # no binary, logged out, protocol change
+            error = f"app-server: {e}"
+    seen, wins = codex_logs()
+    best = max([r for r in (rpc, {"seen": seen, "windows": wins}) if r and r.get("windows")],
+               key=lambda r: r["seen"] or 0, default=None)
+    return (best, None) if best else (None, f"{error or 'app-server: no limits'}; no limits in session logs")
 
 
 # ---------------------------------------------------------------- any other agent

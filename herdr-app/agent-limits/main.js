@@ -10,7 +10,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, readTextFile, appHome, theme, shared } from "herdr";
 
-const EVERY = 60000; // limits move slowly; the files behind them change on agent turns
+const EVERY = 10000; // a tap is written on every agent turn; limits.py answers in ~50 ms
 const STALE = 3 * 3600; // data older than this is dimmed
 const NAMES = { claude: "Claude", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", kimi: "Kimi", antigravity: "Antigravity", gemini: "Gemini" };
 
@@ -64,17 +64,17 @@ export default class AgentLimits extends View {
 
   // `show`: "used" (0% = nothing spent) or "left" (100% = all of it left); the color
   // always follows how much is used.
-  cell(w, now, t, key, show) {
+  cell(w, now, t, key, show, width) {
     const known = w.used !== null && w.used !== undefined;
     const value = known ? Math.round(show === "left" ? 100 - w.used : w.used) : null;
     const tip = !known ? `${w.name}: renewed since the last reading`
       : `${w.name}: ${Math.round(w.used)}% used, ${Math.round(100 - w.used)}% left${w.resets_at ? `, resets in ${span(w.resets_at - now)}` : ""}`;
-    return v_flex().id(key).w(50).flex_none().gap(3).tooltip(tip)
+    return v_flex().id(key).w(width).flex_none().gap(4).tooltip(tip)
       .child(h_flex().gap(4).text_size(10.5).items_center()
         .child(div().text_color(t.dim).child(w.name))
         .child(div().text_color(known ? t.foreground : t.dim).child(known ? `${value}%` : "new")))
-      .child(div().h(3).w_full().rounded(2).bg(t.hover)
-        .when(known, (el) => el.child(div().h_full().rounded(2).bg(this.tone(t, w.used)).w(Math.max(2, Math.min(50, value / 2))))));
+      .child(div().h(4).w_full().rounded(2).bg(t.hover)
+        .when(known, (el) => el.child(div().h_full().rounded(2).bg(this.tone(t, w.used)).w(Math.max(2, (width * Math.min(100, value)) / 100)))));
   }
 
   mark(a, t) {
@@ -90,18 +90,27 @@ export default class AgentLimits extends View {
     const tip = a.error ? `${name}: ${a.error}` : `${name}${a.seen ? `, data from ${span(Math.max(60, now - a.seen))} ago` : ""}`;
     const top = a.windows.reduce((m, w) => Math.max(m, w.used ?? 0), 0);
     const show = this.data?.show ?? "used";
+    // The rail: the agent's icon over its tightest window, a bar and a number.
     if (rail) {
-      return h_flex().id(`limit-${a.id}`).h(26).flex_none().justify_center().gap(4).items_center().tooltip(tip)
-        .child(this.mark(a, t))
-        .child(div().text_size(10.5).text_color(a.windows.length ? this.tone(t, top) : t.dim).child(a.windows.length ? `${Math.round(show === "left" ? 100 - top : top)}` : "?"));
+      const v = Math.round(show === "left" ? 100 - top : top);
+      return v_flex().id(`limit-${a.id}`).h(32).flex_none().items_center().justify_center().gap(4).tooltip(tip)
+        .when(Boolean(stale), (el) => el.opacity(0.55))
+        .child(h_flex().gap(3).items_center().child(this.mark(a, t))
+          .child(div().text_size(10).text_color(a.windows.length ? t.muted : t.dim).child(a.windows.length ? `${v}` : "?")))
+        .child(div().w(30).h(3).rounded(2).bg(t.hover)
+          .when(a.windows.length > 0, (el) => el.child(div().h_full().rounded(2).bg(this.tone(t, top)).w(Math.max(2, (30 * Math.min(100, v)) / 100)))));
     }
+    // Cells share what the icon and the name leave, 56..110 px each.
+    const named = this.width >= 280;
+    const free = this.width - 32 - 22 - (named ? 72 : 0) - 8 * a.windows.length;
+    const width = Math.max(56, Math.min(110, Math.floor(free / Math.max(1, a.windows.length))));
     return h_flex().id(`limit-${a.id}`).h(30).flex_none().px(8).gap(8).items_center().rounded(8)
       .when(Boolean(stale), (el) => el.opacity(0.55))
       .child(h_flex().id(`limit-name-${a.id}`).flex_1().min_w(0).gap(8).items_center().tooltip(tip)
         .child(this.mark(a, t))
-        .when(this.width >= 280, (el) => el.child(div().min_w(0).truncate().text_size(12.5).text_color(t.muted).child(name))))
+        .when(named, (el) => el.child(div().min_w(0).truncate().text_size(12.5).text_color(t.muted).child(name))))
       .when(!a.windows.length, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(a.error ? "no data" : "-")))
-      .children(a.windows.map((w, i) => this.cell(w, now, t, `limit-${a.id}-${i}`, show)));
+      .children(a.windows.map((w, i) => this.cell(w, now, t, `limit-${a.id}-${i}`, show, width)));
   }
 
   render() {
@@ -111,11 +120,11 @@ export default class AgentLimits extends View {
     const agents = this.data?.agents ?? [];
     return v_flex().id("root").size_full().min_h(0).bg(t.chrome).pb(6)
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
-      .child(h_flex().id("limits-head").h(28).flex_none().pl(rail ? 0 : 16).pr(10).items_center().text_size(11.5).text_color(t.dim)
-        .when(rail, (el) => el.justify_center())
+      .child(h_flex().id("limits-head").h(rail ? 14 : 28).flex_none().pl(rail ? 0 : 16).pr(rail ? 0 : 10).items_center().text_size(11.5).text_color(t.dim)
+        .when(rail, (el) => el.justify_center().child(div().w(20).h(1).bg(t.border)))
         .cursor_pointer().on_click((_e, cx) => this.refresh(cx))
         .tooltip(this.error ?? "Click to refresh")
-        .child(div().flex_1().child(rail ? "%" : (this.data?.show === "left" ? "Limits left" : "Limits used")))
+        .when(!rail, (el) => el.child(div().flex_1().child(this.data?.show === "left" ? "Limits left" : "Limits used")))
         .when(Boolean(this.error), (el) => el.child(div().size(6).flex_none().rounded(3).bg(t.blocked))))
       .child(v_flex().px(rail ? 0 : 8).children(agents.map((a) => this.row(a, now, t, rail))));
   }

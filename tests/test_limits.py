@@ -54,11 +54,22 @@ class Limits(unittest.TestCase):
               "secondary": {"used_percent": 40, "window_minutes": 10080, "resets_at": 9999}}
         (d / "rollout-x.jsonl").write_text(json.dumps({"payload": {"type": "token_count", "rate_limits": rl}}) + "\n")
         self.reg.write_text('[limits]\nagents = ["codex", "kimi"]\n')
-        with mock.patch.object(limits, "codex_rpc", side_effect=FileNotFoundError("codex")):
+        with mock.patch.object(limits, "codex_rpc", side_effect=FileNotFoundError("codex")), \
+                mock.patch.object(limits, "CACHE", self.tmp / "cache"):
             out = limits.collect(now=1500)
         codex, kimi = out["agents"]
         self.assertEqual([(w["name"], w["used"]) for w in codex["windows"]], [("5h", 5.0), ("7d", 40.0)])
         self.assertIn("[limits.commands]", kimi["error"])
+
+    def test_codex_rpc_is_cached(self):
+        with mock.patch.object(limits, "CACHE", self.tmp / "cache"), \
+                mock.patch.object(limits, "codex_rpc", return_value=[limits.window("5h", 7, 9999)]) as rpc:
+            limits.codex(1000)
+            data, _ = limits.codex(1000 + limits.RPC_EVERY - 1)
+            self.assertEqual(rpc.call_count, 1)
+            self.assertEqual(data["windows"][0]["used"], 7.0)
+            limits.codex(1000 + limits.RPC_EVERY)
+            self.assertEqual(rpc.call_count, 2)
 
     def test_command_agent(self):
         cmd = [sys.executable, "-c", 'print(\'{"windows": [{"name": "30d", "used": 12, "resets_at": 99999}]}\')']
