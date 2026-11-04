@@ -24,6 +24,10 @@ You maintain the MCP registry of this machine. Public files describe the mechani
 everything about this machine lives in `local/`. Ask the person when something is ambiguous; never
 guess folder purposes or permissions. Full procedures: `README.md`.
 
+Start of every session: read `local/README.md` if it exists (machine facts, registry state, scan
+results, open checks); if `local/` is missing, set it up as `README.md`, "Set up on a machine" says.
+Record new machine facts there, never in tracked files.
+
 ## Register folders
 
 1. `./tool_ask.py scan <root>` lists folders with MCP configs and their runtime. Show the person the
