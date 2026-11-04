@@ -73,6 +73,15 @@ Record new machine facts there, never in tracked files.
   watching unless they ask; never answer a worker's dialog on the person's behalf.
 - Completion is the answer file marker; see `concepts/herdr-calls.md` before changing how waits work.
 
+## Herdr App mods
+
+- `herdr-app/install.py` installs `space-groups` and `agent-limits` (`concepts/herdr-app-mods.md`).
+  Show the person the dry run first; `--claude-statusline` changes their global Claude settings
+  and needs their agreement. After a mod change: `herdr-app check`, then a screenshot
+  (`herdr-app shot`) of the running window. Never drive the person's pointer or keys.
+- `space-groups` is derived from Herdr's shipped `spaces` (Apache-2.0): keep the notice at its top;
+  after an app update compare it with the new shipped `spaces` and carry fixes over.
+
 ## Change this repository
 
 Put private patterns (one regular expression per line) into `local/private-patterns.txt`. Run

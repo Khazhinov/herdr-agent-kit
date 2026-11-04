@@ -2,7 +2,7 @@
 # Tests plus a privacy scan of tracked and staged files.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-python3 tests/test_tool_ask.py >/dev/null 2>&1 || { python3 tests/test_tool_ask.py; exit 1; }
+for t in tests/test_tool_ask.py tests/test_limits.py; do python3 "$t" >/dev/null 2>&1 || { python3 "$t"; exit 1; }; done
 pat='/home/[a-z]|/Users/[A-Za-z]|/mnt/[a-z]/|C:\\Users\\'
 [ -f local/private-patterns.txt ] && while IFS= read -r p; do [ -n "$p" ] && pat="$pat|$p"; done < local/private-patterns.txt
 files=$(git ls-files -co --exclude-standard | grep -v '^scripts/self-check.sh$' || true)

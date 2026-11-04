@@ -3,3 +3,6 @@ __pycache__/
 .mcp.json
 *.env
 /local/
+# written by `herdr-app check` into mod folders
+herdr-app/*/gpui-kit.d.ts
+herdr-app/*/jsconfig.json
