@@ -126,7 +126,7 @@ export default class AgentLimits extends View {
       .child(h_flex().gap(4).text_size(10.5).items_center()
         .child(div().text_color(t.dim).child(w.name))
         .child(div().text_color(known ? t.foreground : t.dim).child(known ? `${value}%` : "new"))
-        .when(Boolean(at) && width >= 92, (el) => el.child(div().flex_1().min_w(0).truncate().text_right().text_color(t.dim).child(when(at, now)))))
+        .when(Boolean(at) && width >= 84, (el) => el.child(div().flex_1().min_w(0).truncate().text_right().text_color(t.dim).child(when(at, now)))))
       .child(div().h(4).w_full().rounded(2).bg(t.hover)
         .when(known, (el) => el.child(div().h_full().rounded(2).bg(this.tone(t, w.used)).w(Math.max(2, (width * Math.min(100, value)) / 100)))));
   }
@@ -138,7 +138,7 @@ export default class AgentLimits extends View {
       .text_size(9).font_bold().text_color(t.muted).child((a.id[0] ?? "?").toUpperCase());
   }
 
-  row(a, now, t, rail) {
+  row(a, now, t, rail, cols) {
     const stale = a.seen && now - a.seen > STALE;
     const name = NAMES[a.id] ?? a.id;
     const tip = a.error ? `${name}: ${a.error}` : `${name}${a.seen ? `, data from ${span(Math.max(60, now - a.seen))} ago` : ""}`;
@@ -154,21 +154,20 @@ export default class AgentLimits extends View {
         .child(div().w(30).h(3).rounded(2).bg(t.hover)
           .when(a.windows.length > 0, (el) => el.child(div().h_full().rounded(2).bg(this.tone(t, top)).w(Math.max(2, (30 * Math.min(100, v)) / 100)))));
     }
-    // Cells share what the icon, the name and the resets leave, 56..130 px each.
-    const named = this.width >= 280;
+    // Every row uses the same columns (`cols`), so cells line up with or without resets.
+    const { named, lead, slot, width } = cols;
     const resets = a.resets?.available ?? 0;
-    const free = this.width - 32 - 22 - (named ? 64 : 0) - (resets ? 26 : 0) - 8 * a.windows.length;
-    const width = Math.max(56, Math.min(130, Math.floor(free / Math.max(1, a.windows.length))));
     const rtip = `${resets} limit reset${resets === 1 ? "" : "s"} to spend`
       + (a.resets?.expires_at ? `, the first expires ${full(a.resets.expires_at)}` : "");
     return h_flex().id(`limit-${a.id}`).h(30).flex_none().px(8).gap(8).items_center().rounded(8)
       .when(Boolean(stale), (el) => el.opacity(0.55))
-      .child(h_flex().id(`limit-name-${a.id}`).flex_1().min_w(0).gap(8).items_center().tooltip(tip)
+      .child(h_flex().id(`limit-name-${a.id}`).w(lead).flex_none().gap(8).items_center().tooltip(tip)
         .child(this.mark(a, t))
-        .when(named, (el) => el.child(div().min_w(0).truncate().text_size(12.5).text_color(t.muted).child(name))))
-      .when(resets > 0, (el) => el.child(h_flex().id(`limit-resets-${a.id}`).flex_none().gap(2).items_center().text_size(10.5).text_color(t.dim).tooltip(rtip)
-        .child(svg("mods/agent-limits/reset.svg").size(11).text_color(t.dim))
-        .child(div().child(String(resets)))))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(t.muted).when(named, (el) => el.child(name))))
+      .when(slot > 0, (el) => el.child(h_flex().id(`limit-resets-${a.id}`).w(slot - 8).flex_none().gap(2).items_center().text_size(10.5).text_color(t.dim)
+        .when(resets > 0, (el) => el.tooltip(rtip)
+          .child(svg("mods/agent-limits/reset.svg").size(11).text_color(t.dim))
+          .child(div().child(String(resets))))))
       .when(!a.windows.length, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(a.error ? "no data" : "-")))
       .children(a.windows.map((w, i) => this.cell(w, now, t, `limit-${a.id}-${i}`, show, width)));
   }
@@ -178,6 +177,13 @@ export default class AgentLimits extends View {
     const rail = this.width < 160;
     const now = Math.floor(Date.now() / 1000);
     const agents = this.data?.agents ?? [];
+    // Shared columns: icon and name, a slot for the resets count if any agent has one, cells.
+    const named = this.width >= 280;
+    const slot = agents.some((a) => a.resets?.available) ? 30 : 0;
+    const lead = (named ? 72 : 14) + slot;
+    const n = Math.max(1, ...agents.map((a) => a.windows.length));
+    const width = Math.max(56, Math.min(130, Math.floor((this.width - 32 - lead - 8 * n) / n)));
+    const cols = { named, lead: lead - slot, slot, width };
     return v_flex().id("root").size_full().min_h(0).bg(t.chrome).pb(6)
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
       .child(h_flex().id("limits-head").h(rail ? 14 : 28).flex_none().pl(rail ? 0 : 16).pr(rail ? 0 : 10).items_center().text_size(11.5).text_color(t.dim)
@@ -186,6 +192,6 @@ export default class AgentLimits extends View {
         .tooltip(this.error ?? "Click to refresh")
         .when(!rail, (el) => el.child(div().flex_1().child(this.data?.show === "left" ? "Limits left" : "Limits used")))
         .when(Boolean(this.error), (el) => el.child(div().size(6).flex_none().rounded(3).bg(t.blocked))))
-      .child(v_flex().px(rail ? 0 : 8).children(agents.map((a) => this.row(a, now, t, rail))));
+      .child(v_flex().px(rail ? 0 : 8).children(agents.map((a) => this.row(a, now, t, rail, cols))));
   }
 }
