@@ -551,8 +551,13 @@ def tab_terminals(node):
         yield from tab_terminals(c)
 
 
+def inside(path, root):
+    p = os.path.realpath(path)
+    return p == root or p.startswith(root + os.sep)
+
+
 def space_of(value, folder):
-    """Space whose terminals work in `folder` now; else the space created in `folder`. The App names
+    """Space whose terminals work inside `folder` now; else one created there. The App names
     a space after the live folder of its tabs, while `folder` keeps the folder it was created in."""
     created = None
     for sp in value.get("spaces", []):
@@ -560,9 +565,9 @@ def space_of(value, folder):
             for a in tab_terminals(tab.get("root") or {}):
                 g = hc("get", a, "--json", check=False)
                 cwd = ((g.get("foreground") or {}).get("cwd") or g.get("cwd")) if isinstance(g, dict) else None
-                if cwd and os.path.realpath(cwd) == folder:
+                if cwd and inside(cwd, folder):
                     return sp["id"]
-        if created is None and sp.get("folder") and os.path.realpath(sp["folder"]) == folder:
+        if created is None and sp.get("folder") and inside(sp["folder"], folder):
             created = sp["id"]
     return created
 

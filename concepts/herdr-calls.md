@@ -12,7 +12,7 @@ only a shell; the worker is an interactive agent in a herdr-core terminal.
 | Name | `tool-<module>` (MCP), `tool-<module>-<profile>` (service) |
 | Start | on the first call, in the module folder, with `env` carrying `PATH`, locale and proxies (herdr-core starts programs with its own environment) |
 | Lifetime | stays after the call; one request at a time (a busy worker gives exit code 3). Closing its tab in Herdr App ends it; the next call starts it again |
-| Visibility | always shown in Herdr App. `space = "caller"` (default): the space of the calling terminal. `space = "module"`: the space whose tabs work in the module folder now; created when none exists. Registry key `space`, flag `--space` |
+| Visibility | always shown in Herdr App. `space = "caller"` (default): the space of the calling terminal. `space = "module"`: the space whose tabs work inside the module folder now; created when none exists. Registry key `space`, flag `--space` |
 | Reset | before each request the runtime's fresh-conversation command (`/clear`, `/new`): one request, one conversation |
 
 Herdr App keeps its layout in the herdr-core document `herdr-app` (spaces, tabs, terminals). A

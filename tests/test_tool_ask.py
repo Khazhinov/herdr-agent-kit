@@ -128,7 +128,7 @@ class Placement(Base):
     def test_module_space_by_live_folder(self):
         # the App names a space after the live folder of its tab; `folder` may be stale
         st = {"terms": {"user": {"address": "t7", "name": "user", "cwd": "/elsewhere", "state": "live",
-                                 "foreground": {"cwd": str(self.wd)}}}, "calls": [],
+                                 "foreground": {"cwd": str(self.wd / "sub")}}}, "calls": [],
               "doc": {"version": 1, "value": {"spaces": [
                   {"id": "spSTALE", "folder": str(self.wd), "tabs": []},
                   {"id": "spLIVE", "folder": "/elsewhere", "tabs": [{"root": {"children": [
