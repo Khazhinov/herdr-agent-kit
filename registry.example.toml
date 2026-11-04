@@ -1,0 +1,18 @@
+# Copy to local/registry.toml (git-ignored). One entry per folder on this machine that has MCP
+# servers configured inside it. Project owners see only description and capabilities.
+
+[modules.github]
+description = "GitHub repositories, issues, pull requests, Actions runs"
+# Absolute folder with .mcp.json (for Claude workers) and the secrets it needs. Required.
+workdir = "~/tool-agents/github"
+# MCP server names in that folder; the worker is told to use only these.
+mcp = ["github"]
+# Short capability names for callers. Keep them few and concrete.
+capabilities = ["github.repo.read", "github.issue.read", "github.pr.read", "github.actions.read"]
+write_capabilities = ["github.issue.write", "github.pr.review", "github.pr.comment"]
+# Write requests are refused unless this is true. Set it only after the person agrees.
+allow_write = false
+# Optional, defaults shown:
+# command = ["claude", "--model", "haiku"]
+# reset = "/clear"
+# Extra worker rules: local/modules/<module>.md
