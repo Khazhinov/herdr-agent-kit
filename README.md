@@ -87,6 +87,20 @@ When a server, its config or the registry changes:
 `sync` also reports linked projects that no longer exist and modules removed from the registry.
 `unlink <project> [module...]` removes a link.
 
+## Runtime notes
+
+Verified end to end (start, reset, MCP call, answer file) for Claude Code, Codex and OpenCode.
+
+| Runtime | Needs once per module folder |
+|---|---|
+| Claude Code | answer the folder trust prompt on the first start |
+| Codex | the folder is a trusted project (`[projects."<workdir>"] trust_level = "trusted"`), otherwise its `.codex/config.toml` and MCP servers are ignored; changed global hooks ask for trust once on start |
+| OpenCode | allow writing answers outside the folder: `"permission": {"external_directory": {"<home>/.cache/herdr-tool-agents/**": "allow"}}` in the folder's `opencode.json` |
+| Other | `command` (full argv with a cheap model), `reset`, `mcp_config` when the config is not in a default place; check the runtime's own trust and directory permissions |
+
+A worker that waits for such a prompt makes `ask` exit with 4; answer it in Herdr App or
+`hc attach tool-<module>`, never on the person's behalf.
+
 ## Request protocol
 
 1. The worker terminal `tool-<module>` starts on the first request in the module folder and stays.

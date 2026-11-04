@@ -79,6 +79,12 @@ class Ask(Base):
         self.assertEqual(rc, 0, err)
         self.assertIn("WRITE ALLOWED BY USER: exactly", [c for c in self.calls() if c[0] == "send"][1][-2])
 
+    def test_start_waits_for_loading_worker(self):
+        os.environ["FAKE_HC_STATUS"] = "working"
+        self.t.start("github", self.t.load("github")[1])
+        self.assertIn("wait", [c[0] for c in self.calls()])
+        os.environ["FAKE_HC_STATUS"] = "idle"
+
     def test_busy_worker(self):
         os.environ["FAKE_HC_STATUS"] = "working"
         self.assertEqual(self.run_cli("ask", "github", "x")[0], 3)

@@ -286,6 +286,7 @@ def start(module, m):
     if not mcp_probe.servers(wd, m["runtime"], m.get("mcp_config")):
         raise SystemExit(f"{wd}: no MCP servers found (runtime {m['runtime']}, mcp_config {m.get('mcp_config')})")
     argv = ["env", *[f"{k}={os.environ[k]}" for k in PASS_ENV if k in os.environ], *m["command"]]
+    hc("rm", name, "--json", check=False)  # a finished terminal of the same name may linger
     hc("run", "--bg", "--json", "--name", name, "--cwd", str(wd), "--no-parent",
        "--label", f"orch.tool={module}", "--", *argv)
     # Agents report status (OSC 7501) once their UI is ready.
@@ -298,6 +299,9 @@ def start(module, m):
         print(f"{name} started but reports no status: it may wait for a person (trust/login). "
               f"Answer it in Herdr App or `hc attach {name}`.", file=sys.stderr)
         raise SystemExit(4)
+    if status_of(t) == "working":  # some runtimes report working while they load at start
+        hc("wait", name, "--timeout", "90", "--json", check=False)
+        _, t = term(name[5:])
     return name, t
 
 

@@ -38,8 +38,11 @@ Record new machine facts there, never in tracked files.
    `tools` if the person wants a narrower tool set, `allow_write = false` unless the person says
    otherwise in this conversation.
 3. Do not open secret values. The scan and `refresh` read configs only to start servers.
-4. `./tool_ask.py refresh <id>`; check the card for `unavailable:` and report such servers.
-5. Module-specific worker rules (scope limits, things never to print): `local/modules/<id>.md`.
+4. Apply "Runtime notes" of `README.md` for the module's runtime (Codex trust entry, OpenCode answer
+   directory permission); show the person each change to their agent configs before writing it.
+5. `./tool_ask.py refresh <id>`; check the card for `unavailable:` and report such servers.
+   Then one read-only `ask` per new module proves the worker path.
+6. Module-specific worker rules (scope limits, things never to print): `local/modules/<id>.md`.
 
 ## Projects
 
