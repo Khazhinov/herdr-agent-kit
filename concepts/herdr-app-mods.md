@@ -52,7 +52,7 @@ herdr machine (`source.json`, written by the installer). Settings are `[limits]`
 |---|---|
 | `agents` | which agents, in order; default `["claude", "codex"]` |
 | `show` | `used` (0% = nothing spent, default) or `left` (100% = all left) |
-| `[limits.commands]` | any other agent (Kimi, Cursor, Antigravity, ...): a command that prints `{"windows": [{"name", "used", "resets_at"}]}`, optionally `"resets": {"available", "expires_at"}` |
+| `[limits.commands]` | any other agent (Cursor, Antigravity, ...): a command that prints `{"windows": [{"name", "used", "resets_at"}]}`, optionally `"resets": {"available", "expires_at"}` |
 
 Built-in sources:
 
@@ -60,6 +60,14 @@ Built-in sources:
 |---|---|
 | Claude Code | `rate_limits` of the statusLine input. `limits.py statusline -- <old command>` wraps the statusLine, keeps one snapshot per session and runs the old command with the same input, so the visible line is unchanged. An idle session keeps showing what it saw last, maybe before a reset, so per window the latest `resets_at` wins and, within it, the highest usage. Snapshots of the GSD template's own tap are read too. |
 | Codex | the fresher of the newest `rate_limits` in `~/.codex/sessions` logs (written on every Codex turn, read on every refresh) and `codex app-server` `account/rateLimits/read` (also sees other machines and the available limit resets, `rateLimitResetCredits`; asked at most every 30 s, one start costs about a second) |
+| Kimi Code | `GET /usages` on the configured official Kimi Code endpoint. Shows the available 5h, 7d and monthly total windows; missing windows are omitted. `limit_month_code` is the Code share of the same monthly pool, shown in the `month` tooltip rather than as a separate limit. Once the window has renewed, its old breakdown is hidden until a new reading. Successes and errors are cached for 90 s. On failure, the last successful reading keeps its original timestamp and quota windows alongside the error. Custom API hosts and redirects are rejected. |
+
+For Codex + Kimi, set `[limits] agents = ["codex", "kimi"]`; no Claude statusLine changes are needed.
+Kimi provider settings come from `config.toml` in `~/.kimi-code` (or `KIMI_CODE_HOME`). Choose one authorization mode: `oauth`, a non-empty `api_key`, or `api_key_env` naming an environment variable. Conflicting modes are rejected. String values are trimmed. The named variable must be non-empty and visible to the collector process, including when it runs on another machine; an unset or empty variable reports a configuration error. API-key modes never start OAuth renewal.
+
+For OAuth, the collector verifies that the configured credential slot matches the effective official API endpoint and OAuth host, then reads the CLI's existing credential. Mismatches, including incompatible `KIMI_CODE_BASE_URL`, `KIMI_CODE_OAUTH_HOST` or `KIMI_OAUTH_HOST` overrides, fail before credentials are read or requests are sent. Align the collector environment with `config.toml` and log in through Kimi; the collector never chooses another slot silently. Only file-based OAuth storage is supported. A token expiring within 60 s (or without an expiry) and with a refresh token triggers native renewal. This requires a compatible Kimi Code CLI on PATH or under `KIMI_CODE_HOME/bin` (the local API and instance registry were checked with 2.5.0). The collector briefly starts its own authenticated `kimi web --no-open` server on a loopback-only ephemeral port and calls its usage API. Kimi owns refresh locking, token rotation and atomic credential writes; the collector re-reads the durable winner, then stops its server. No browser, agent session or model request is started. Credential values never enter the kit cache or error messages.
+
+After OAuth HTTP 401, the collector re-reads the durable credential to adopt a concurrent CLI rotation. If that winner needs ordinary renewal, it may invoke the native helper once. A different access token allows one final quota request. The compatible CLI's usage API does **not** expose forced renewal of a formally fresh token: an unchanged rejected token, or another 401, reports that reauthorization through `kimi /login` is needed. There are at most two direct quota requests and one native helper per collection attempt; the helper can make its own quota request. API-key 401 reports an API-key error. Other HTTP and connection errors do not trigger recovery or retries. Failures are retried after the 90 s cache interval.
 
 ## 3. Install
 
