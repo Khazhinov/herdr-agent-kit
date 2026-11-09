@@ -82,7 +82,8 @@ hc run --bg --name <runtime>-<task> --cwd <work folder> \
 | `env PATH=... HOME=... LANG=...`, proxy variables | herdr-core starts programs with its own environment: without them the agent is not found, the locale and proxies are lost |
 | absolute path to the agent | the same reason: `PATH` of the core may not contain the agent |
 | task in the `run` arguments | a message sent with `hc send` to a booting agent can be dropped |
-| Codex: `codex --no-daemon` | required; without it Codex runs commands in a shared daemon outside the hc terminal |
+| Codex: `codex --no-daemon` | required; without it Codex runs commands in a shared daemon outside the hc terminal, with the environment of the terminal that started the daemon (`HC_TERMINAL_ID`, sandbox, `PATH`). For a Codex started by hand, set `[features] daemon_auto_start = false` in `~/.codex/config.toml` and stop the running daemon once |
+| Codex sandbox writes | a profile that allows writes only in the workspace blocks the shared caches `~/.cache/herdr-agent-kit` and `~/.cache/herdr-orch` (`Read-only file system`); allow `write` for them in the profile |
 
 Run the agent interactively, never in a one-shot print mode (`-p`, `exec`): it stays watchable,
 steerable and ready for another turn. Before writing a command, check `hc templates`: a template

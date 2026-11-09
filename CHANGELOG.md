@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 - 2026-11-09
+
+- `concepts/herdr-launch`: a Codex started by hand needs `features.daemon_auto_start = false`; the
+  Codex profile must allow writes to the shared caches `~/.cache/herdr-agent-kit` and `~/.cache/herdr-orch`.
+
 ## 0.1.2 - 2026-11-09
 
 - `concepts/herdr-launch`: the end of a turn shows as `done` or as `idle` in any runtime; the earlier
