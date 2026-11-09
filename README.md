@@ -35,6 +35,7 @@ gets its own top-level folder with its own README and a row in this table.
 | `registry.example.toml` | yes | annotated registry entries of both kinds |
 | `examples/<module>/` | yes | sample MCP config or service manifest |
 | `concepts/` | yes | the concepts, written to be reused without this code |
+| `VERSION`, `CHANGELOG.md` | yes | release number and changes per release |
 | `AGENTS.md` | yes | procedure for the agent that maintains the registry |
 | `local/registry.toml` | no | this machine's modules |
 | `local/cards/<module>.md`, `.log` | no | generated cards (MCP tools or service functions) and their change log |
