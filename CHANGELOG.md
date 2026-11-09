@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 - 2026-11-09
+
+- `concepts/herdr-launch`: the end of a turn shows as `done` or as `idle` in any runtime; the earlier
+  note that Codex always ends with `done` was wrong (a Codex turn also ended with `idle`).
+
 ## 0.1.1 - 2026-11-09
 
 - Codex workers start with `--no-daemon`; without it Codex runs commands outside the hc terminal.
