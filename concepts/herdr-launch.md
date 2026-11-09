@@ -25,6 +25,35 @@ hc get "$HC_TERMINAL_ID"      # labels: herdr.space, herdr.tab, where
 | `HC_TERMINAL_ID` set, no `herdr.space` | the terminal is hidden from the App (started by `hc run` without the label); choose the space by the project folder (section 2) |
 | `HC_TERMINAL_ID` empty | the session is outside herdr-core: a started terminal has no parent and is shown only through the `herdr.space` label |
 
+
+### Check the agent's command channel, especially after an owner switch
+
+Run the core probe through the agent's own shell tool. A visible Herdr terminal and inherited
+`HC_TERMINAL_ID` / `HC_TERMINAL_SOCKET` do not prove that sandboxed commands can reach the core.
+`codex --no-daemon` selects where commands run; it does not grant them permissions.
+
+If `hc get` fails with `Operation not permitted`, check access to the actual Unix socket before
+concluding that core or systemd is broken. A sandbox may allow creating a socket but deny connecting
+to it; `hc` can then try to start core and report a secondary systemd error. Do not restart the
+person's core, answer a permission dialog, or replace the project's delegation flow with inline work.
+An escalation request or `CODEX_SANDBOX_NETWORK_DISABLED` value alone is not an access test.
+
+Ask the person to enable an appropriate permission profile and rerun the probe in the new agent's
+command channel. Prefer a permitted core socket plus the cache and project paths needed for the
+role; do not silently disable the sandbox or change global settings. Current Codex documents named
+profiles and Unix socket policy at https://developers.openai.com/codex/config-reference ; verify
+platform/version support and the effective result. Relaunch if the active session cannot reload
+its profile. Keep machine paths and local permission choices outside public Git files.
+
+For GSD owner handoff also check explicit target `gsd_runtime`, handoff freshness, routing owner,
+GSD runtime, quota admission, a worker start/report/collect, and a live Mission Control update.
+A shell launched by Claude can reach core while a Codex command launched in the same terminal
+cannot; compare the command channels rather than assuming identical permissions.
+
+The global Claude and Codex instructions should point here and require this probe after changing
+runtime. Installing the pointer or `--no-daemon` alone does not configure permissions. A successful
+launcher only proves terminal creation; mark the owner environment ready after its internal probe.
+
 ## 2. Choose the space and the tab
 
 Herdr App keeps its layout in the herdr-core document `herdr-app`. A terminal labelled
