@@ -9,12 +9,16 @@ Codex, OpenCode и любая команда, которой управляет 
 [herdr-gsd-template](https://github.com/Khazhinov/herdr-gsd-template) (`orch.py tools`, `tools-link`,
 `tool-ask`), но от него не зависит. Прежнее название - `herdr-tool-agents`.
 
+Набору нужен herdr-core (`hc`, проверено на версии 0.1.16), а не прежний терминальный мультиплексор
+`herdr`: команды `herdr agent`, `herdr pane`, `herdr tab` и `herdr workspace` не используются.
+
 ## Каталог
 
 | Компонент | Что даёт | Концепция | Реализация |
 |---|---|---|---|
 | Реестр MCP | проект пользуется MCP-серверами других папок, не загружая их схемы и не храня их токены | [concepts/mcp-registry.ru.md](concepts/mcp-registry.ru.md) | `tool_ask.py ask`, `mcp_probe.py` |
 | Служебные репозитории | проект вызывает типизированные функции другого репозитория (документы, отчёты, проверки), каждую в среде, модели и с усилием, выбранными этим репозиторием | [concepts/service-repos.ru.md](concepts/service-repos.ru.md) | `tool_ask.py call`, `agent-service.toml` |
+| Запуск агентов | сессия запускает агента в отдельной вкладке Herdr App под вызывающим терминалом: space и вкладка, флаги, проверки запуска, ожидание, очистка; нужен только `hc` | [concepts/herdr-launch.ru.md](concepts/herdr-launch.ru.md) | нет (порядок действий); ему следуют исполнители `tool_ask.py` |
 | Вызовы через herdr | единый протокол для всех исполнителей: видимый терминал, сброс, правила в запросе, файл ответа, сигналы завершения, коды выхода | [concepts/herdr-calls.ru.md](concepts/herdr-calls.ru.md) | `tool_ask.py` |
 | Подключённые проекты | проект получает перечень подключённых модулей, файл с описанием каждого модуля и журнал изменений; `sync` поддерживает их в актуальном состоянии | [concepts/linked-projects.ru.md](concepts/linked-projects.ru.md) | `tool_ask.py link`, `sync` |
 | Моды Herdr App | группы и подгруппы spaces в боковой панели (перетаскивание, число spaces и состояние агентов в группе); компактный блок лимитов агентов под списком агентов | [concepts/herdr-app-mods.ru.md](concepts/herdr-app-mods.ru.md) | `herdr-app/`, `limits.py` |

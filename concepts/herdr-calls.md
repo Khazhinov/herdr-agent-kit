@@ -10,7 +10,7 @@ only a shell; the worker is an interactive agent in a herdr-core terminal.
 | Item | Rule |
 |---|---|
 | Name | `tool-<module>` (MCP), `tool-<module>-<profile>` (service) |
-| Start | on the first call, in the module folder, with `env` carrying `PATH`, locale and proxies (herdr-core starts programs with its own environment) |
+| Start | on the first call, in the module folder, with `env` carrying `PATH`, locale and proxies (herdr-core starts programs with its own environment), without a parent (`--no-parent`), so it outlives the caller; flags and start checks: [herdr-launch.md](herdr-launch.md) |
 | Lifetime | stays after the call; one request at a time (a busy worker gives exit code 3). Closing its tab in Herdr App ends it; the next call starts it again |
 | Visibility | always shown in Herdr App. `space = "caller"` (default): the space of the calling terminal. `space = "module"`: the space whose tabs work inside the module folder now; created when none exists. Registry key `space`, flag `--space` |
 | Reset | before each request the runtime's fresh-conversation command (`/clear`, `/new`): one request, one conversation |
@@ -45,7 +45,7 @@ Synchronous calls wait in one blocking command. With `--async` the call prints a
 | Caller | Signal |
 |---|---|
 | any | one blocking `wait <module> <task>` (as a background command where the runtime allows), or `result <module> <task>` (0 ready, 3 still running); no polling loops |
-| inside herdr | a watcher terminal `w-<module>-<task>`, a child of the caller, runs `wait`; herdr notes the caller when it ends (`hc wait --children any` waits for it) |
+| inside herdr | a watcher terminal `w-<module>-<task>`, a child of the caller, runs `wait`; herdr-core types a note into the caller when it ends (`hc wait --children any` waits for it) |
 
 ## Exit codes
 

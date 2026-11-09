@@ -9,12 +9,16 @@ works on both sides of a call. Works with
 [herdr-gsd-template](https://github.com/Khazhinov/herdr-gsd-template) (`orch.py tools`, `tools-link`,
 `tool-ask`) but does not depend on it. Formerly `herdr-tool-agents`.
 
+The kit needs herdr-core (`hc`, checked with 0.1.16), not the older `herdr` terminal multiplexer:
+commands such as `herdr agent`, `herdr pane`, `herdr tab` or `herdr workspace` are not used.
+
 ## Catalog
 
 | Block | What it gives | Concept | Implementation |
 |---|---|---|---|
 | MCP registry | a project uses MCP servers of other folders without loading their schemas or holding their tokens | [concepts/mcp-registry.md](concepts/mcp-registry.md) | `tool_ask.py ask`, `mcp_probe.py` |
 | Service repositories | a project calls typed functions of another repository (documents, reports, reviews), each on the runtime, model and effort that repository chose | [concepts/service-repos.md](concepts/service-repos.md) | `tool_ask.py call`, `agent-service.toml` |
+| Launching agents | a session starts an agent in its own Herdr App tab under the calling terminal: space and tab, flags, start checks, waiting, cleanup; needs only `hc` | [concepts/herdr-launch.md](concepts/herdr-launch.md) | none (procedure); `tool_ask.py` workers follow it |
 | Calls through herdr | one protocol for every worker: visible terminal, reset, rules in the request, answer file, completion signals, exit codes | [concepts/herdr-calls.md](concepts/herdr-calls.md) | `tool_ask.py` |
 | Linked projects | a project gets an index of linked modules, one details file per module and their change log, kept current by `sync` | [concepts/linked-projects.md](concepts/linked-projects.md) | `tool_ask.py link`, `sync` |
 | Herdr App mods | space groups and subgroups in the sidebar (drag and drop, count and agent status per group); a compact block of agents' usage limits under the agents list | [concepts/herdr-app-mods.md](concepts/herdr-app-mods.md) | `herdr-app/`, `limits.py` |
