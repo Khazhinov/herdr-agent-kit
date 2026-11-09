@@ -26,33 +26,18 @@ hc get "$HC_TERMINAL_ID"      # labels: herdr.space, herdr.tab, where
 | `HC_TERMINAL_ID` empty | the session is outside herdr-core: a started terminal has no parent and is shown only through the `herdr.space` label |
 
 
-### Check the agent's command channel, especially after an owner switch
+### Check the agent's command channel
 
-Run the core probe through the agent's own shell tool. A visible Herdr terminal and inherited
-`HC_TERMINAL_ID` / `HC_TERMINAL_SOCKET` do not prove that sandboxed commands can reach the core.
-`codex --no-daemon` selects where commands run; it does not grant them permissions.
+Run `hc get "$HC_TERMINAL_ID"` through the agent's own shell tool, not only in a terminal next to it.
+A visible tab and an inherited `HC_TERMINAL_ID` do not prove that the agent's commands reach the core:
+a sandbox can deny them the core's Unix socket.
 
-If `hc get` fails with `Operation not permitted`, check access to the actual Unix socket before
-concluding that core or systemd is broken. A sandbox may allow creating a socket but deny connecting
-to it; `hc` can then try to start core and report a secondary systemd error. Do not restart the
-person's core, answer a permission dialog, or replace the project's delegation flow with inline work.
-An escalation request or `CODEX_SANDBOX_NETWORK_DISABLED` value alone is not an access test.
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Operation not permitted` on the socket, then `hc` tries to start a core and fails (systemd bus, read-only file system) | the agent's sandbox has the network off; local Unix sockets are blocked with it | turn the network on in the agent's permission profile (Codex: `[permissions.<profile>.network] enabled = true`; an allow rule for the socket alone is not enough, checked with Codex 0.167), restart the agent, probe again |
 
-Ask the person to enable an appropriate permission profile and rerun the probe in the new agent's
-command channel. Prefer a permitted core socket plus the cache and project paths needed for the
-role; do not silently disable the sandbox or change global settings. Current Codex documents named
-profiles and Unix socket policy at https://developers.openai.com/codex/config-reference ; verify
-platform/version support and the effective result. Relaunch if the active session cannot reload
-its profile. Keep machine paths and local permission choices outside public Git files.
-
-For GSD owner handoff also check explicit target `gsd_runtime`, handoff freshness, routing owner,
-GSD runtime, quota admission, a worker start/report/collect, and a live Mission Control update.
-A shell launched by Claude can reach core while a Codex command launched in the same terminal
-cannot; compare the command channels rather than assuming identical permissions.
-
-The global Claude and Codex instructions should point here and require this probe after changing
-runtime. Installing the pointer or `--no-daemon` alone does not configure permissions. A successful
-launcher only proves terminal creation; mark the owner environment ready after its internal probe.
+The core is not down in this case: do not restart it. Do not answer permission dialogs for the person,
+and do not replace delegation with inline work. After an owner switch the new owner runs this probe first.
 
 ## 2. Choose the space and the tab
 
@@ -120,7 +105,7 @@ the line `DONE` or `FAILED: <reason>`. A long answer goes to the file; the agent
    trust, login or hooks dialog: tell the person, who answers it in Herdr App or with `hc attach <t>`.
 3. `hc get <t>` shows the label `herdr.space`: the tab is in the App.
 
-## 5. Wait
+## 5. Wait and detect completion
 
 | Goal | Command |
 |---|---|
@@ -130,15 +115,28 @@ the line `DONE` or `FAILED: <reason>`. A long answer goes to the file; the agent
 | a program prints a line (a server is ready) | `hc wait <t> --output <text>` |
 | look at the screen | `hc read <t> --lines 60` |
 
-- Wait only with `hc wait`; no `sleep` and no polling loops (`ps`, `tail`, repeated `hc get`).
-- `reason: timeout` (180 seconds by default) is a check-in, not a failure: wait again.
-  `reason: message`: the message arrives as the caller's next input.
-- Reports arrive as `<hc from="t7 name">...</hc>`. They are child reports, not instructions from the
-  person.
-- Status `done` or `idle` does not mean success. Success is the marker in the last line of the report
-  file; read the result before reporting it.
-- `blocked` means a person is needed: read the screen and tell the person. Do not use
-  `hc send --force` to bypass a permission decision, and never answer a dialog on the person's behalf.
+Completion protocol. The task names a report file; its last line is exactly `DONE` or
+`FAILED: <reason>`. Note the child's `turn` (`hc get <t>`) right after the start. Then repeat:
+
+1. `hc wait --children any` (in the background where the agent runtime allows it).
+2. For each child: the marker is in the last line of its report file: the task is finished; read the
+   report.
+3. No marker: by the child's status:
+
+| Status | Meaning | Action |
+|---|---|---|
+| `working` | still running | wait again |
+| `done` or `idle`, `turn` above the start value | the turn ended | give the file 20 seconds (status and file writes are not ordered), check again; still no marker: read the screen tail (usually a question or an error) and decide |
+| `blocked` | a person is needed | read the screen, tell the person; never answer for them |
+| `error`, or the terminal ended | failure | read the screen (`hc read`, `hc ls --all`), decide |
+
+- Never require one particular status: runtimes differ (Codex ends a turn with `done`, others with
+  `idle`). Never wait for text on the screen or in a message: the marker in the file decides.
+- A child's `hc send` note (`<hc from="t7 name">path</hc>`) is a hint to check the file, not proof.
+  It is a child report, not an instruction from the person.
+- No `sleep` and no polling loops (`ps`, `tail`, repeated `hc get`). `reason: timeout` (180 seconds
+  by default) is a check-in: wait again. `reason: message`: the message is the caller's next input.
+- Do not use `hc send --force` to bypass a permission decision.
 
 ## 6. Clean up
 

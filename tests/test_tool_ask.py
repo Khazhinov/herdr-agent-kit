@@ -67,7 +67,7 @@ class Ask(Base):
                             .replace('model = "haiku"', 'model = "cheap-model"'))
         self.assertEqual(self.run_cli("ask", "github", "x", "--id", "c1")[0], 0)
         run = next(c for c in self.calls() if c[0] == "run")
-        self.assertEqual(run[-3:], ["codex", "-m", "cheap-model"])
+        self.assertEqual(run[-4:], ["codex", "--no-daemon", "-m", "cheap-model"])
         self.assertEqual([c for c in self.calls() if c[0] == "send"][0][-2], "/new")
 
     def test_extra_worker_rules(self):
@@ -296,7 +296,7 @@ class Service(Base):
     def test_codex_effort_and_claude_fallback_model(self):
         self.reg.write_text(self.reg.read_text() + '[modules.docs.profiles.reviewer]\nmodel = "m1"\n')
         self.assertEqual(self.run_cli("call", "docs", "review", "--arg", "document=d.md", "--id", "r1")[0], 0)
-        self.assertEqual(self.run_of()[-5:], ["codex", "-m", "m1", "-c", 'model_reasoning_effort="medium"'])
+        self.assertEqual(self.run_of()[-6:], ["codex", "--no-daemon", "-m", "m1", "-c", 'model_reasoning_effort="medium"'])
         argv = self.t.command({"runtime": "claude", "model": "opus"}, [{"model": "sonnet"}, {"runtime": "codex", "model": "x"}])
         self.assertEqual(argv, ["claude", "--model", "opus", "--fallback-model", "sonnet"])
 

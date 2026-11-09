@@ -58,7 +58,7 @@ HUB = Path(__file__).resolve().parent
 REGISTRY = Path(env("HERDR_AGENT_KIT_REGISTRY", "HERDR_TOOL_AGENTS_REGISTRY") or HUB / "local" / "registry.toml")
 LOCAL = REGISTRY.parent
 CACHE = Path(env("HERDR_AGENT_KIT_CACHE", "HERDR_TOOL_AGENTS_CACHE") or Path.home() / ".cache" / "herdr-agent-kit")
-PASS_ENV = ["PATH", "LANG", "LC_ALL", "ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy",
+PASS_ENV = ["PATH", "HOME", "LANG", "LC_ALL", "ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy",
             "HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"]
 WRITE_MARK = "WRITE ALLOWED BY USER"
 MANIFEST = "agent-service.toml"
@@ -69,7 +69,8 @@ APP_DOC = "herdr-app"  # herdr-core document that holds the App layout (spaces, 
 PARAM_TYPES = ("string", "path", "number", "bool")
 # argv prefix, model flag, fresh-conversation command, effort arguments ({} = level; None = no flag).
 RUNTIMES = {"claude": (["claude"], "--model", "/clear", ["--effort", "{}"]),
-            "codex": (["codex"], "-m", "/new", ["-c", 'model_reasoning_effort="{}"']),
+            # --no-daemon: without it Codex runs commands in its shared daemon, outside the hc terminal
+            "codex": (["codex", "--no-daemon"], "-m", "/new", ["-c", 'model_reasoning_effort="{}"']),
             "opencode": (["opencode"], "-m", "/new", None)}
 RULES = """[tool worker rules] You are a narrow tool agent of herdr-agent-kit. Use only the MCP tools of: {servers}.
 Do not edit files except the answer file. Read-only unless this request contains the line `{mark}` and names
@@ -94,6 +95,10 @@ class ProfileFailed(Exception):
 def hc(*args, check=True):
     p = subprocess.run([*os.environ.get("ORCH_HC", "hc").split(), *args], capture_output=True, text=True)
     if check and p.returncode:
+        if "Operation not permitted" in p.stderr:
+            raise RuntimeError("hc cannot reach the herdr-core socket (Operation not permitted): this agent's "
+                               "sandbox blocks local sockets; turn the network on in its permission profile and "
+                               "restart it (concepts/herdr-launch.md, section 1). The core itself is running.")
         raise RuntimeError(f"hc {' '.join(args[:2])}: {p.stderr.strip()[:300]}")
     out = p.stdout.strip()
     try:

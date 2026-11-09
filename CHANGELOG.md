@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1 - 2026-11-09
+
+- Codex workers start with `--no-daemon`; without it Codex runs commands outside the hc terminal.
+- `hc` failing with `Operation not permitted` reports the cause: the caller's sandbox blocks local
+  sockets (network off in its permission profile), not a stopped core.
+- Workers get `HOME` with the other passed variables.
+- `concepts/herdr-launch`: the command-channel check names the cause and the fix; the wait section is a
+  completion protocol: the marker in the report file decides, `done` and `idle` both end a turn.
+
 ## 0.1.0 - 2026-11-09
 
 First tagged release. Requires herdr-core (`hc`, checked with 0.1.16); the older `herdr` terminal
