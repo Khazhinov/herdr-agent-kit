@@ -8,7 +8,8 @@ description = "GitHub repositories, issues, pull requests, Actions runs"
 # Absolute folder whose own agent config holds the MCP servers and their secrets. Required.
 workdir = "~/tool-agents/github"
 # Agent runtime that reads the folder's MCP config:
-#   claude   -> .mcp.json             codex -> .codex/config.toml      opencode -> opencode.json(c)
+#   claude   -> .mcp.json and the local scope of ~/.claude.json
+#   codex    -> .codex/config.toml      opencode -> opencode.json(c)
 runtime = "claude"
 # Start command, model flag and reset are built in for claude, codex and opencode. Any other runtime
 # (gemini, cursor-agent, aider, ...): set `command` and `reset` below. MCP config files are found by

@@ -24,6 +24,7 @@ class Base(unittest.TestCase):
                            "FAKE_HC_STATE": str(self.td / "hc.json"),
                            "HERDR_AGENT_KIT_REGISTRY": str(self.reg),
                            "HERDR_AGENT_KIT_CACHE": str(self.td / "cache"),
+                           "CLAUDE_CONFIG_DIR": str(self.td),
                            "FAKE_HC_ANSWER": "DONE", "FAKE_HC_STATUS": "idle", "FAKE_TOKEN_SRC": "t0ken"})
         os.environ["HERDR_AGENT_KIT_GRACE"] = "0"
         for k in ("HC_TERMINAL_ID", "FAKE_HC_CALLER", "FAKE_HC_CALLER_SPACE", "FAKE_HC_SILENT", "FAKE_HC_DIE"):
@@ -196,6 +197,9 @@ class Cards(Base):
         self.assertEqual(mcp_probe.read_config(d / "x.toml"), {"t": {"command": ["z", "1"], "env": {}}})
         (d / "vs.json").write_text('{"servers": {"v": {"type": "http", "url": "http://h/v"}}}')
         self.assertEqual(mcp_probe.read_config(d / "vs.json")["v"]["url"], "http://h/v")
+        (self.td / ".claude.json").write_text(json.dumps({"projects": {str(self.wd.resolve()): {"mcpServers": {
+            "tg": {"command": "uv", "args": ["run", "main.py"]}}}}}))
+        self.assertEqual(mcp_probe.detect(self.wd), {"claude": ["github", "tg"]})
 
     def test_any_runtime_with_command(self):
         (self.wd / "agent.json").write_text((self.wd / ".mcp.json").read_text())

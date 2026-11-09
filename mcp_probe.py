@@ -81,6 +81,11 @@ def servers(workdir, runtime, config=None):
     for rel in ([config] if config else CONFIG_FILES.get(runtime, [])):
         if (wd / rel).exists():
             found.update(read_config(wd / rel))
+    if runtime == "claude" and not config:  # `claude mcp add` default (local) scope, overrides .mcp.json
+        user = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home())) / ".claude.json"
+        if user.exists():
+            local = json.loads(user.read_text()).get("projects", {}).get(str(wd.resolve()), {})
+            found.update({n: e for n, c in (local.get("mcpServers") or {}).items() if (e := _entry(c))})
     return _expand(found)
 
 
