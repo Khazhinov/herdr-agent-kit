@@ -7,10 +7,10 @@
                                     the same input and prints its output
 
 Settings: `[limits]` of the registry (registry.example.toml):
-  agents = ["claude", "codex"]        order shown; default: these two
+  agents = ["claude", "codex"]        order shown; default: these two; kimi also built in
   show = "used"                       or "left": what the percent means
   [limits.commands]
-  kimi = ["/path/to/kimi-limits"]     any other agent: a command printing
+  other = ["/path/to/agent-limits"]     any other agent: a command printing
                                       {"windows": [{"name", "used", "resets_at"}]}
 
 Output: {"now", "show", "agents": [{"id", "seen", "windows", "resets", "error"}]};
@@ -20,13 +20,18 @@ true: the window renewed after the last reading, so `used` is unknown (null).
 spend (Codex grants them), the earliest expiry first.
 Standard library only.
 """
+import hashlib
 import json
 import os
 import select
+import shutil
 import subprocess
 import sys
 import time
 import tomllib
+import urllib.error
+import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 HUB = Path(__file__).resolve().parent
@@ -36,6 +41,7 @@ CLAUDE = CACHE / "limits" / "claude"
 # herdr-gsd-template keeps its own taps of the same statusLine input; read them too.
 ORCH = Path(os.environ.get("ORCH_CACHE_DIR") or Path.home() / ".cache" / "herdr-orch")
 CODEX = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / "sessions"
+KIMI = Path(os.environ.get("KIMI_CODE_HOME") or Path.home() / ".kimi-code")
 FRESH = 6 * 3600  # Claude taps older than this are ignored when newer ones exist
 
 
@@ -181,6 +187,232 @@ def codex(now):
     return (best, None) if best else (None, f"{error or 'app-server: no limits'}; no limits in session logs")
 
 
+# ---------------------------------------------------------------- kimi
+
+KIMI_EVERY = 90  # s; the UI can poll without making an API request each time
+KIMI_NAMES = {"limit_5h": "5h", "limit_7d": "7d", "limit_month_total": "month"}
+KIMI_BASES = {"https://api.kimi.com/coding/v1", "https://api.kimi.ai/coding/v1"}
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # never forward the bearer token to a redirect destination
+
+
+def kimi_refresh():
+    """Delegate refresh rotation, locking and credential writes to the installed CLI.
+
+    Start only our own loopback server, use its authenticated quota endpoint,
+    then shut it down. Never implement a second OAuth writer beside Kimi.
+    """
+    binary = shutil.which("kimi")
+    if not binary:
+        candidate = KIMI / "bin" / "kimi"
+        if candidate.is_file():
+            binary = str(candidate)
+    if not binary:
+        raise RuntimeError("Kimi CLI is required to renew OAuth authorization")
+    env = {**os.environ, "KIMI_CODE_HOME": str(KIMI)}
+    p = subprocess.Popen([binary, "web", "--no-open", "--host", "127.0.0.1", "--port", "0"],
+                         cwd=KIMI, env=env, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Ignore proxy settings and refuse redirects for the local server bearer.
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+        deadline = time.monotonic() + 20
+        origin = None
+        while time.monotonic() < deadline:
+            if p.poll() is not None:
+                raise RuntimeError("Kimi web exited before OAuth renewal; requires a compatible Kimi Code CLI")
+            for path in (KIMI / "server" / "instances").glob("*.json"):
+                try:
+                    info = json.loads(path.read_text())
+                    port = info.get("port")
+                    if (info.get("pid") != p.pid or info.get("host") != "127.0.0.1"
+                            or not isinstance(port, int) or not 0 < port < 65536):
+                        continue
+                    candidate = f"http://127.0.0.1:{port}"
+                    with opener.open(candidate + "/api/v1/healthz", timeout=0.5):
+                        origin = candidate
+                    break
+                except (OSError, ValueError, urllib.error.URLError):
+                    continue
+            if origin:
+                break
+            time.sleep(0.1)
+        if not origin:
+            raise TimeoutError("Kimi OAuth renewal server did not become ready")
+        token = (KIMI / "server.token").read_text().strip()
+        if not token:
+            raise RuntimeError("Kimi local server authorization is unavailable")
+        req = urllib.request.Request(origin + "/api/v1/oauth/usage",
+                                     headers={"Authorization": f"Bearer {token}"})
+        try:
+            with opener.open(req, timeout=20) as response:
+                result = json.load(response)
+        except urllib.error.HTTPError as e:
+            e.close()
+            raise RuntimeError(f"Kimi local OAuth renewal HTTP {e.code}") from None
+        if result.get("code") != 0 or (result.get("data") or {}).get("kind") != "ok":
+            raise RuntimeError("Kimi could not renew authorization or read quota; check connectivity or kimi /login")
+    finally:
+        if p.poll() is None:
+            p.terminate()
+        try:
+            p.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+
+
+def kimi_request():
+    """Read quota, asking the installed Kimi CLI to renew expiring OAuth credentials."""
+    with (KIMI / "config.toml").open("rb") as f:
+        provider = tomllib.load(f).get("providers", {}).get("managed:kimi-code", {})
+    configured_base = provider.get("base_url") or "https://api.kimi.com/coding/v1"
+    base = os.environ.get("KIMI_CODE_BASE_URL", configured_base).rstrip("/")
+    if base not in KIMI_BASES:
+        raise ValueError("Kimi quota requires an official Kimi Code API endpoint")
+
+    def nonempty(value):
+        return value.strip() if isinstance(value, str) else ""
+
+    inline = nonempty(provider.get("api_key"))
+    env_name = nonempty(provider.get("api_key_env"))
+    modes = [name for name, present in (("api_key", bool(inline)),
+             ("api_key_env", bool(env_name)), ("oauth", "oauth" in provider)) if present]
+    if len(modes) > 1:
+        raise ValueError(f"Kimi provider credential conflict: {', '.join(modes)} are mutually exclusive")
+    oauth = provider.get("oauth") or {}
+    path = None
+    refreshed = False
+
+    def read_credential():
+        try:
+            credential = json.loads(path.read_text())
+            if not isinstance(credential, dict):
+                raise ValueError()
+            return credential
+        except (OSError, ValueError):
+            raise ValueError("Kimi OAuth credential unavailable; reauthorize with kimi /login") from None
+
+    def expiring(credential):
+        try:
+            expiry = credential.get("expires_at")
+            return bool(credential.get("refresh_token")) and (expiry is None or float(expiry) <= time.time() + 60)
+        except (TypeError, ValueError):
+            raise ValueError("invalid Kimi OAuth credential expiry") from None
+
+    def renew(credential):
+        nonlocal refreshed
+        if expiring(credential) and not refreshed:
+            refreshed = True  # at most one native helper per collection attempt
+            try:
+                kimi_refresh()
+            except Exception:
+                raise RuntimeError("Kimi OAuth renewal failed; check CLI connectivity or kimi /login") from None
+            return read_credential()  # native CLI owns writes and the durable winner
+        return credential
+
+    if "oauth" in provider:
+        key = nonempty(oauth.get("key"))
+        name = key.removeprefix("oauth/")
+        if not name or name.startswith(".") or "/" in name or "\\" in name:
+            raise ValueError("invalid Kimi credential name")
+        if oauth.get("storage", "file") != "file":
+            raise ValueError("Kimi quota requires file-based OAuth credentials")
+        # Match the native runtime's slot identity, but never switch credentials silently.
+        has_override = any(k in os.environ for k in
+                           ("KIMI_CODE_BASE_URL", "KIMI_CODE_OAUTH_HOST", "KIMI_OAUTH_HOST"))
+        host = (os.environ.get("KIMI_CODE_OAUTH_HOST", os.environ.get("KIMI_OAUTH_HOST"))
+                if has_override else oauth.get("oauth_host"))
+        host = (host if host is not None else "https://auth.kimi.com").strip().rstrip("/")
+        expected = "oauth/kimi-code"
+        if host != "https://auth.kimi.com" or base != "https://api.kimi.com/coding/v1":
+            identity = json.dumps({"oauthHost": host, "baseUrl": base}, separators=(",", ":"), ensure_ascii=False)
+            expected = "oauth/kimi-code-env-" + hashlib.sha256(identity.encode()).hexdigest()[:16]
+        if key != expected:
+            raise ValueError("Kimi OAuth configuration/environment mismatch; align KIMI_CODE_BASE_URL, "
+                             "KIMI_CODE_OAUTH_HOST and KIMI_OAUTH_HOST with config.toml, then use kimi /login")
+        path = KIMI / "credentials" / f"{name}.json"
+        token = nonempty(renew(read_credential()).get("access_token"))
+    elif env_name:
+        token = nonempty(os.environ.get(env_name))
+        if not token:
+            raise ValueError(f"Kimi api_key_env {env_name} is not set or is empty in the collector environment")
+    else:
+        token = inline
+    if not token:
+        raise ValueError("Kimi is not logged in; run kimi login")
+    opener = urllib.request.build_opener(NoRedirect())
+    for attempt in range(2):  # one direct quota retry, only with a different durable OAuth token
+        req = urllib.request.Request(base + "/usages", headers={
+            "Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "herdr-agent-kit/1"})
+        try:
+            with opener.open(req, timeout=8) as response:
+                payload = json.load(response)
+            break
+        except urllib.error.HTTPError as e:
+            e.close()
+            if e.code == 401 and path:
+                if attempt == 0:
+                    winner = renew(read_credential())
+                    new_token = nonempty(winner.get("access_token"))
+                    if new_token and new_token != token:
+                        token = new_token
+                        continue
+                # The native usage route does not force renewal of a fresh rejected token.
+                raise RuntimeError("Kimi quota HTTP 401; reauthorize with kimi /login") from None
+            if e.code == 401:
+                raise RuntimeError("Kimi quota HTTP 401; check the configured API key") from None
+            raise RuntimeError(f"Kimi quota HTTP {e.code}") from None
+        except (OSError, urllib.error.URLError):
+            raise RuntimeError("Kimi quota connection failed; check connectivity") from None
+        except Exception:
+            raise RuntimeError("Kimi quota request or response is invalid") from None
+    try:
+        wins = []
+        for key, name in KIMI_NAMES.items():
+            item = payload.get("usages", {}).get(key)
+            if not isinstance(item, dict) or item.get("used_ratio") is None:
+                continue
+            reset = item.get("reset_time")
+            resets_at = datetime.fromisoformat(reset.replace("Z", "+00:00")).timestamp() if reset else None
+            win = window(name, max(0, min(100, float(item["used_ratio"]) * 100)), resets_at)
+            # month_code is the Code share of the same monthly pool, not another limit.
+            code = payload.get("usages", {}).get("limit_month_code")
+            if key == "limit_month_total" and isinstance(code, dict) and code.get("used_ratio") is not None:
+                code_used = round(max(0, min(100, float(code["used_ratio"]) * 100)), 1)
+                win["breakdown"] = [{"name": "Kimi Code", "used": code_used},
+                                    {"name": "Other Kimi", "used": round(max(0, win["used"] - code_used), 1)}]
+            wins.append(win)
+    except Exception:
+        raise ValueError("Kimi quota response is invalid") from None
+    if not wins:
+        raise ValueError("Kimi quota response has no usage windows")
+    return wins
+
+
+def kimi(now):
+    """Cache both success and failure; keep last known readings if the API is unavailable."""
+    path = CACHE / "limits" / "kimi.json"
+    try:
+        cached = json.loads(path.read_text())
+    except (OSError, ValueError):
+        cached = {}
+    if now - cached.get("attempted", 0) >= KIMI_EVERY:
+        try:
+            cached = {"seen": now, "windows": kimi_request(), "error": None}
+        except Exception as e:
+            cached["error"] = f"Kimi quota: {e}"
+        cached["attempted"] = now
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(cached))
+        tmp.replace(path)
+    return (cached if cached.get("windows") else None), cached.get("error")
+
+
 # ---------------------------------------------------------------- any other agent
 
 def command(argv, now):
@@ -192,7 +424,7 @@ def command(argv, now):
             "windows": [window(w["name"], w["used"], w.get("resets_at")) for w in data.get("windows", [])]}, None
 
 
-BUILTIN = {"claude": claude, "codex": codex}
+BUILTIN = {"claude": claude, "codex": codex, "kimi": kimi}
 
 
 def config():
