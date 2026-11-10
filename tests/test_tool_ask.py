@@ -233,9 +233,11 @@ class Projects(Base):
         for f in ("AGENTS.md", "CLAUDE.md"):
             text = (self.pr / f).read_text()
             self.assertIn(".agent-tools/TOOLS.md", text)
+            self.assertIn(self.t.UPSTREAM_POLICY, text)
             self.assertNotIn(str(HUB), text)  # tracked files get no machine path
         self.run_cli("link", str(self.pr), "github")  # idempotent
         self.assertEqual((self.pr / "AGENTS.md").read_text().count(".agent-tools/TOOLS.md"), 1)
+        self.assertEqual((self.pr / "AGENTS.md").read_text().count(self.t.UPSTREAM_POLICY), 1)
         self.assertIn("same", self.run_cli("sync")[1])
         (self.td / "local/cards/github.md").write_text("### github (1 tools)\n\n- `new_tool()` - New.\n")
         self.assertIn("changed", self.run_cli("sync", "--dry-run")[1])

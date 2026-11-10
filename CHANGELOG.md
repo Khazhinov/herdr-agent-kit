@@ -38,3 +38,7 @@ multiplexer is not supported.
   in its own Herdr App tab under the calling terminal (space and tab, flags, start checks, the check
   of the agent's command channel, waiting, cleanup) without the kit's code; README states that only
   herdr-core is used.
+
+## Unreleased
+
+- Propagate standing upstream-maintenance authorization into linked project instructions on link and sync, preserving existing text and avoiding duplicates.
