@@ -22,6 +22,7 @@ commands such as `herdr agent`, `herdr pane`, `herdr tab` or `herdr workspace` a
 | Calls through herdr | one protocol for every worker: visible terminal, reset, rules in the request, answer file, completion signals, exit codes | [concepts/herdr-calls.md](concepts/herdr-calls.md) | `tool_ask.py` |
 | Linked projects | a project gets an index of linked modules, one details file per module and their change log, kept current by `sync` | [concepts/linked-projects.md](concepts/linked-projects.md) | `tool_ask.py link`, `sync` |
 | Herdr App mods | space groups and subgroups in the sidebar (drag and drop, count and agent status per group); a compact block of agents' usage limits under the agents list | [concepts/herdr-app-mods.md](concepts/herdr-app-mods.md) | `herdr-app/`, `limits.py` |
+| Mobile Herdr App access | existing agent terminals on a phone over home Wi-Fi or through Ovis relay | [Mobile access with Ovis](concepts/ovis-mobile.md) | Ovis server and user service |
 
 Both module kinds share one registry, one card format and one way to link projects. A further block
 gets its own top-level folder with its own README and a row in this table.

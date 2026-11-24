@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 - 2026-11-24
+
+- Document Ovis access to existing Herdr App sessions from Android over home Wi-Fi: WSL user
+  service, private HTTPS, pairing and PWA installation after restarting Chrome. Cover the cloud
+  relay and the Android VPN conflict with Tailscale.
+
 ## 0.1.3 - 2026-11-09
 
 - `concepts/herdr-launch`: a Codex started by hand needs `features.daemon_auto_start = false`; the
