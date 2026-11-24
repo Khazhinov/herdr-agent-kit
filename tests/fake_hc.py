@@ -16,16 +16,20 @@ s["calls"].append(sys.argv[1:])
 out = "{}"
 if cmd == "run":
     name = args[args.index("--name") + 1]
-    s["terms"][name] = {"address": "t1", "name": name, "state": "live",
+    existing = {t["address"] for t in s["terms"].values()}
+    address = next(f"t{i}" for i in range(1, len(existing) + 2) if f"t{i}" not in existing)
+    s["terms"][name] = {"address": address, "name": name, "state": "live",
                         "status": {"state": os.environ.get("FAKE_HC_STATUS", "idle")},
                         "argv": args[args.index("--") + 1:], "cwd": args[args.index("--cwd") + 1], "turn": 0}
 elif cmd == "ls":
     out = json.dumps({"terminals": list(s["terms"].values())})
 elif cmd == "send":
     m = re.search(r"Write the brief answer to (\S+);", args[-2] if args[-1] == "--json" else args[-1])
-    t = s["terms"].get(args[0])
+    target = args[-3]
+    name = next((key for key, t in s["terms"].items() if target in (key, t["address"])), None)
+    t = s["terms"].get(name)
     if m and os.environ.get("FAKE_HC_DIE"):
-        s["terms"].pop(args[0], None)
+        s["terms"].pop(name, None)
     elif m and not os.environ.get("FAKE_HC_ANSWER") and not os.environ.get("FAKE_HC_SILENT"):
         t["status"] = {"state": "working"}
     elif m:

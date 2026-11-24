@@ -609,10 +609,26 @@ def place(name, workdir, space):
         return
 
 
+def worker_ready(name, address):
+    """Check the live foreground before putting input into a persistent terminal."""
+    t = hc("get", address, "--json", check=False)
+    if not isinstance(t, dict) or t.get("state") != "live":
+        raise ProfileFailed(f"{name} is no longer live")
+    foreground = Path((t.get("foreground") or {}).get("name") or "").name.lstrip("-")
+    if foreground in {"sh", "bash", "dash", "zsh", "fish", "ash", "ksh", "tcsh", "csh", "pwsh", "powershell", "cmd.exe"}:
+        raise ProfileFailed(f"{name} has a shell in the foreground ({foreground}); the agent is unavailable")
+    state = status_of(t)
+    if not state or state in ("working", "blocked"):
+        raise ProfileFailed(f"{name} is not ready for input (agent status: {state or 'unreported'})")
+    return t
+
+
 def start(name, module, workdir, argv, space="caller"):
     """Start the worker terminal once and show it in Herdr App; raise ProfileFailed when it cannot run."""
     t = term(name)
     if t:
+        if status_of(t) is None:
+            return worker_ready(name, t["address"])
         return t
     if not Path(workdir).is_dir():
         raise SystemExit(f"{workdir} missing")
@@ -661,13 +677,14 @@ def last_line(path):
     return lines[-1] if lines else None
 
 
-def send(name, reset, text):
-    """Reset, then the request. Returns the turn counter before the request: completion needs a newer turn."""
+def send(name, address, reset, text):
+    """Reset, then send the request to the same worker and return its previous turn."""
+    t = worker_ready(name, address)
     if reset:
-        hc("send", "--wait", "--timeout", "60", name, reset, "--json", check=False)
-    turn = (term(name) or {}).get("turn", 0)
-    hc("send", name, text, "--json")
-    return turn
+        hc("send", "--wait", "--timeout", "60", address, reset, "--json", check=False)
+        t = worker_ready(name, address)
+    hc("send", address, text, "--json")
+    return t.get("turn", 0)
 
 
 def marker(out):
@@ -747,7 +764,11 @@ def ask(module, request, write=False, timeout=300, rid=None, space=None):
             + f"Write the brief answer to {out}; its last line is exactly DONE (or FAILED: <why>).")
     t0 = time.time()
     audit({"at": t0, "module": module, "id": rid, "write": write, "request": request[:500], "answer": str(out)})
-    turn0 = send(name, m["reset"], text)
+    try:
+        turn0 = send(name, t["address"], m["reset"], text)
+    except ProfileFailed as e:
+        print(e, file=sys.stderr)
+        return 1
     state = await_answer(name, out, t0 + timeout, turn0)
     audit({"at": time.time(), "module": module, "id": rid, "result": last_line(out), "seconds": round(time.time() - t0)})
     return report(name, out, state)
@@ -842,7 +863,10 @@ def call(module, fname, pairs, profile=None, write=False, async_=False, timeout=
     t0 = time.time()
     task = {"at": t0, "module": module, "id": rid, "function": fname, "profile": pname, "terminal": name,
             "others": others, "write": write, "args": vals, "answer": str(out), "deadline": t0 + timeout}
-    task["turn"] = send(name, reset_of(p), text)
+    try:
+        task["turn"] = send(name, t["address"], reset_of(p), text)
+    except ProfileFailed as e:
+        return profile_failed(pname, others, e)
     if async_:
         task["watcher"] = watcher(task)
     (d / "task.json").write_text(json.dumps(task, ensure_ascii=False, indent=1))

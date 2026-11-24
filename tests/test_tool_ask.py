@@ -329,6 +329,19 @@ class Service(Base):
         self.assertEqual(rc, 6)
         self.assertIn("retry with: --profile writer, --profile default", err)
 
+    def test_reused_shell_fails_profile_without_sending(self):
+        name = "tool-docs-reviewer"
+        terminal = {"name": name, "address": "t7", "state": "live", "status": None,
+                    "foreground": {"name": "bash"}}
+        (self.td / "hc.json").write_text(json.dumps({"terms": {name: terminal}, "calls": []}))
+        rc, _, err = self.run_cli("call", "docs", "review", "--arg", "document=d", "--id", "shell")
+        self.assertEqual(rc, 6)
+        self.assertIn("profile reviewer failed", err)
+        self.assertIn("shell in the foreground (bash)", err)
+        self.assertIn("retry with: --profile writer, --profile default", err)
+        self.assertEqual(self.state()["terms"][name], terminal)
+        self.assertFalse({"send", "kill", "rm", "run"}.intersection(call[0] for call in self.calls()))
+
     def test_async_then_wait_and_result(self):
         os.environ["FAKE_HC_ANSWER"] = ""
         rc, out, _ = self.run_cli("call", "docs", "draft", "--arg", "task=t", "--arg", "source=x", "--async", "--id", "a1")
