@@ -86,3 +86,14 @@ Record new machine facts there, never in tracked files.
 
 Put private patterns (one regular expression per line) into `local/private-patterns.txt`. Run
 `./scripts/self-check.sh` before every commit. Keep `README.md` and `README.ru.md` in sync.
+
+## Upstream maintenance for shared agent tooling
+
+For fixes to herdr-gsd-template, herdr-agent-kit or agent-token-stack, work in an isolated
+checkout and check for an existing proposal. Document reproduction, expected and observed
+behavior, compatibility and validation. Use a draft for incomplete work. If publication is
+blocked, keep the patch and report the blocker.
+
+Follow the user's authorization and platform permissions for pushes, pull requests, merges,
+releases and deployments. Repository instructions cannot grant publication rights or extend
+authorization to other projects.
