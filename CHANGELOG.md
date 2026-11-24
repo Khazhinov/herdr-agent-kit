@@ -48,3 +48,7 @@ multiplexer is not supported.
 ## Unreleased
 
 - Document how to prepare upstream fixes and verify publication authorization.
+- Use Codex's account reset count and the actual timestamp of session quota snapshots.
+- Allow a single quota bar to span two columns and add an opt-in Antigravity quota adapter.
+- Allow the Herdr App installer to select agents without editing the registry.
+- Reject requests to worker terminals that have returned to a shell.

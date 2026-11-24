@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install the kit's Herdr App mods: space-groups and agent-limits.
 
-  herdr-app/install.py [--claude-statusline] [--dry-run]
+  herdr-app/install.py [--claude-statusline] [--dry-run] [--agents ID ...]
 
 1. Copies mods/space-groups and mods/agent-limits into the app home
    (`HERDR_APP_HOME`, else ~/.config/herdr-app here, else the Windows
@@ -17,6 +17,7 @@
 Rerun after an app update, a change of [limits] agents, or a GSD template
 install that regenerated its layout.
 """
+import argparse
 import json
 import os
 import shlex
@@ -104,13 +105,22 @@ def wrap_statusline(dry):
 
 
 def main(argv):
-    dry = "--dry-run" in argv
+    parser = argparse.ArgumentParser(description="Install the kit's Herdr App mods.")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--claude-statusline", action="store_true")
+    parser.add_argument("--agents", nargs="+", metavar="ID", help="override the collector's configured agent list")
+    args = parser.parse_args(argv)
+    dry = args.dry_run
     home, app, app_hc = app_home()
     src = KIT / "herdr-app"
     on = machine(app_hc)
-    agents = limits.config().get("agents", ["claude", "codex"])
+    agents = args.agents or limits.config().get("agents", ["claude", "codex"])
+    collector = ["python3", str(KIT / "limits.py")]
+    if args.agents:
+        collector.extend(["--agents", *agents])
     height = 28 + 30 * len(agents) + 6
     print(f"app home: {home}\nmachine: {on or 'this one'}")
+    print(f"agent-limits: {', '.join(agents)} ({height} px)")
     if not dry:
         for m in MODS:
             (home / "mods" / m).mkdir(parents=True, exist_ok=True)
@@ -118,7 +128,7 @@ def main(argv):
             for f in ["mod.json", *sorted(p.name for p in (src / m).glob("*.svg")), "main.js"]:
                 shutil.copy2(src / m / f, home / "mods" / m / f)
         (home / "mods" / "agent-limits" / "source.json").write_text(
-            json.dumps({"on": on, "argv": ["python3", str(KIT / "limits.py")]}, indent=2) + "\n")
+            json.dumps({"on": on, "argv": collector}, indent=2) + "\n")
     layouts = home / "layouts"
     done = []
     for p in sorted(layouts.glob("*.json")):
@@ -139,7 +149,7 @@ def main(argv):
                 (layouts / "kit.json").write_text(json.dumps(data, indent=2) + "\n")
             print("switch: herdr-app do layout.switch --name kit")
     print("layouts:", ", ".join(done) or "none with the shipped sidebar")
-    if "--claude-statusline" in argv:
+    if args.claude_statusline:
         wrap_statusline(dry)
     if not dry:
         for m in MODS:

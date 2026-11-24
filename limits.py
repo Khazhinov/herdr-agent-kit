@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Usage limits of agent runtimes, for the Herdr App mod `agent-limits`.
 
-  limits.py                         the configured agents' limits as JSON
+  limits.py [--agents ID ...]       the configured agents' limits as JSON
   limits.py statusline -- CMD...    Claude Code statusLine wrapper: keeps this
                                     session's rate_limits, then runs CMD with
                                     the same input and prints its output
@@ -20,8 +20,10 @@ true: the window renewed after the last reading, so `used` is unknown (null).
 spend (Codex grants them), the earliest expiry first.
 Standard library only.
 """
+import argparse
 import hashlib
 import json
+import math
 import os
 import select
 import shutil
@@ -126,35 +128,64 @@ def codex_rpc(timeout=10.0):
                 if o.get("id") == 2:
                     if "error" in o:
                         raise RuntimeError(o["error"].get("message", "rpc error"))
-                    rl = o["result"].get("rateLimits") or {}
-                    wins = [rl.get(k) for k in ("primary", "secondary")]
-                    credits = [c for c in (o["result"].get("rateLimitResetCredits") or {}).get("credits") or []
-                               if c.get("status") == "available"]
-                    return {"windows": [window(span(w.get("windowDurationMins")), w["usedPercent"], w.get("resetsAt"))
-                                        for w in wins if w and w.get("usedPercent") is not None],
-                            "resets": {"available": len(credits),
-                                       "expires_at": min((c["expiresAt"] for c in credits if c.get("expiresAt")), default=None)}}
+                    return codex_limits(o["result"])
         raise TimeoutError("codex app-server did not answer")
     finally:
         p.kill()
         p.wait()
 
 
+def codex_limits(result):
+    limits = (result.get("rateLimitsByLimitId") or {}).get("codex") or result.get("rateLimits") or {}
+    windows = [limits.get(k) for k in ("primary", "secondary")]
+    summary = result.get("rateLimitResetCredits") or {}
+    credits = [credit for credit in summary.get("credits") or [] if credit.get("status") == "available"]
+    available = summary.get("availableCount")
+    return {"windows": [window(span(w.get("windowDurationMins")), w["usedPercent"], w.get("resetsAt"))
+                        for w in windows if w and w.get("usedPercent") is not None],
+            "resets": {"available": len(credits) if available is None else available,
+                       "expires_at": min((c["expiresAt"] for c in credits if c.get("expiresAt")), default=None)}}
+
+
 def codex_logs():
-    """Fallback: the newest rate_limits Codex wrote into its session logs."""
-    files = sorted(CODEX.glob("*/*/*/rollout-*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True) if CODEX.is_dir() else []
-    for f in files[:20]:
-        with f.open(encoding="utf-8", errors="replace") as fh:
-            lines = [ln for ln in fh if '"rate_limits"' in ln]
+    """Fallback: the newest Codex quota snapshot across recent session logs."""
+    files = []
+    for path in CODEX.glob("*/*/*/rollout-*.jsonl"):
+        try:
+            files.append((path.stat().st_mtime, path))
+        except FileNotFoundError:
+            continue
+    newest, windows = None, []
+    for modified, path in sorted(files, reverse=True)[:20]:
+        if newest is not None and modified < newest:
+            break
+        try:
+            with path.open(encoding="utf-8", errors="replace") as log:
+                lines = [line for line in log if '"rate_limits"' in line]
+        except FileNotFoundError:
+            continue
         for line in reversed(lines):
             try:
-                rl = (json.loads(line).get("payload") or {}).get("rate_limits") or {}
+                event = json.loads(line)
             except ValueError:
                 continue
-            wins = [w for w in (rl.get("primary"), rl.get("secondary")) if w and w.get("used_percent") is not None]
-            if wins:
-                return int(f.stat().st_mtime), [window(span(w.get("window_minutes")), w["used_percent"], w.get("resets_at")) for w in wins]
-    return None, []
+            limits = (event.get("payload") or {}).get("rate_limits") or {}
+            if limits.get("limit_id") not in (None, "codex"):
+                continue
+            wins = [w for w in (limits.get("primary"), limits.get("secondary"))
+                    if w and w.get("used_percent") is not None]
+            if not wins:
+                continue
+            try:
+                seen = datetime.fromisoformat(event["timestamp"]).timestamp()
+            except (KeyError, TypeError, ValueError):
+                seen = modified
+            if newest is None or seen > newest:
+                newest = seen
+                windows = [window(span(w.get("window_minutes")), w["used_percent"], w.get("resets_at"))
+                           for w in wins]
+            break
+    return (int(newest) if newest is not None else None), windows
 
 
 RPC_EVERY = 30  # s; one app-server start costs about a second
@@ -183,7 +214,10 @@ def codex(now):
     best = max([r for r in (rpc, {"seen": seen, "windows": wins}) if r and r.get("windows")],
                key=lambda r: r["seen"] or 0, default=None)
     if best and rpc:
-        best = {**best, "resets": rpc.get("resets")}
+        resets = rpc.get("resets")
+        if resets and (resets.get("expires_at") or 0) <= now:
+            resets = {**resets, "expires_at": None}
+        best = {**best, "resets": resets}
     return (best, None) if best else (None, f"{error or 'app-server: no limits'}; no limits in session logs")
 
 
@@ -439,6 +473,38 @@ def command(argv, now):
             "windows": [window(w["name"], w["used"], w.get("resets_at")) for w in data.get("windows", [])]}, None
 
 
+def antigravity(settings, now):
+    argv = settings.get("command") if isinstance(settings, dict) else None
+    if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
+        return None, "configure [limits.antigravity] command"
+    try:
+        result = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None, "Antigravity quota command failed to run"
+    if result.returncode:
+        return None, f"Antigravity quota command exited with status {result.returncode}"
+    try:
+        windows = []
+        for quota in json.loads(result.stdout)["quotas"]:
+            model = quota["model"]
+            remaining = quota["remaining_percent"]
+            if not isinstance(model, str) or not model.strip() or isinstance(remaining, bool) \
+                    or not isinstance(remaining, (int, float)) or not math.isfinite(remaining) or not 0 <= remaining <= 100:
+                raise ValueError()
+            reset = quota.get("reset_at")
+            if reset is not None:
+                reset = datetime.fromisoformat(reset)
+                if reset.tzinfo is None:
+                    raise ValueError()
+                reset = reset.timestamp()
+            windows.append(window(model, 100 - remaining, reset))
+        if not windows:
+            return None, "Antigravity quota command returned no model quotas"
+    except (TypeError, ValueError, KeyError, AttributeError, OverflowError, OSError):
+        return None, "Antigravity quota command returned invalid data"
+    return {"seen": now, "windows": windows}, None
+
+
 BUILTIN = {"claude": claude, "codex": codex, "kimi": kimi}
 
 
@@ -449,15 +515,17 @@ def config():
     return {}
 
 
-def collect(now=None):
+def collect(now=None, agents_override=None):
     now = int(now or time.time())
     cfg = config()
     commands = cfg.get("commands", {})
     agents = []
-    for aid in cfg.get("agents", ["claude", "codex"]):
+    for aid in agents_override or cfg.get("agents", ["claude", "codex"]):
         try:
             if aid in commands:
                 data, error = command(commands[aid], now)
+            elif aid == "antigravity":
+                data, error = antigravity(cfg.get("antigravity", {}), now)
             elif aid in BUILTIN:
                 data, error = BUILTIN[aid](now)
             else:
@@ -501,7 +569,10 @@ def main(argv):
     if argv[:1] == ["statusline"]:
         rest = argv[1:]
         return statusline(rest[1:] if rest[:1] == ["--"] else rest)
-    print(json.dumps(collect()))
+    parser = argparse.ArgumentParser(description="Collect agent usage limits.")
+    parser.add_argument("--agents", nargs="+", metavar="ID", help="override the configured agent list")
+    args = parser.parse_args(argv)
+    print(json.dumps(collect(agents_override=args.agents)))
     return 0
 
 

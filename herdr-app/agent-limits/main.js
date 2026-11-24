@@ -17,9 +17,12 @@ const STALE = 3 * 3600; // data older than this is dimmed
 const NAMES = { claude: "Claude", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", kimi: "Kimi", antigravity: "Antigravity", gemini: "Gemini" };
 
 function span(sec) {
-  if (sec < 3600) return `${Math.max(1, Math.round(sec / 60))}m`;
-  if (sec < 86400) return `${Math.floor(sec / 3600)}h ${Math.round((sec % 3600) / 60)}m`;
-  return `${Math.floor(sec / 86400)}d ${Math.round((sec % 86400) / 3600)}h`;
+  const minutes = Math.max(1, Math.round(sec / 60));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h 0m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
 // The system's date and time format. The mod engine (QuickJS) has no Intl and
@@ -157,7 +160,7 @@ export default class AgentLimits extends View {
           .when(a.windows.length > 0, (el) => el.child(div().h_full().rounded(2).bg(this.tone(t, top)).w(Math.max(2, (30 * Math.min(100, v)) / 100)))));
     }
     // Every row uses the same columns (`cols`), so cells line up with or without resets.
-    const { named, lead, slot, width } = cols;
+    const { named, lead, slot, width, singleWidth } = cols;
     const resets = a.resets?.available ?? 0;
     const rtip = `${resets} limit reset${resets === 1 ? "" : "s"} to spend`
       + (a.resets?.expires_at ? `, the first expires ${full(a.resets.expires_at)}` : "");
@@ -171,7 +174,7 @@ export default class AgentLimits extends View {
           .child(svg("mods/agent-limits/reset.svg").size(11).text_color(t.dim))
           .child(div().child(String(resets))))))
       .when(!a.windows.length, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(a.error ? "no data" : "-")))
-      .children(a.windows.map((w, i) => this.cell(w, now, t, `limit-${a.id}-${i}`, show, width)));
+      .children(a.windows.map((w, i) => this.cell(w, now, t, `limit-${a.id}-${i}`, show, a.windows.length === 1 ? singleWidth : width)));
   }
 
   render() {
@@ -183,9 +186,11 @@ export default class AgentLimits extends View {
     const named = this.width >= 280;
     const slot = agents.some((a) => a.resets?.available) ? 30 : 0;
     const lead = (named ? 72 : 14) + slot;
-    const n = Math.max(1, ...agents.map((a) => a.windows.length));
-    const width = Math.max(56, Math.min(130, Math.floor((this.width - 32 - lead - 8 * n) / n)));
-    const cols = { named, lead: lead - slot, slot, width };
+    const n = Math.max(2, ...agents.map((a) => a.windows.length));
+    const available = Math.max(0, this.width - 32 - lead);
+    const width = Math.max(0, Math.min(130, Math.floor((available - 8 * n) / n)));
+    const singleWidth = Math.min(available - 8, 2 * width + 8);
+    const cols = { named, lead: lead - slot, slot, width, singleWidth };
     return v_flex().id("root").size_full().min_h(0).bg(t.chrome).pb(6)
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } })
       .child(h_flex().id("limits-head").h(rail ? 14 : 28).flex_none().pl(rail ? 0 : 16).pr(rail ? 0 : 10).items_center().text_size(11.5).text_color(t.dim)

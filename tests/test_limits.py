@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -79,6 +80,40 @@ class Limits(unittest.TestCase):
             self.assertEqual(data["resets"]["available"], 2)
             limits.codex(1000 + limits.RPC_EVERY)
             self.assertEqual(rpc.call_count, 2)
+
+    def test_codex_reset_summary_and_account_bucket(self):
+        quota = {"primary": {"usedPercent": 12, "windowDurationMins": 300, "resetsAt": 6000}}
+        credits = [{"status": "available", "expiresAt": 2600},
+                   {"status": "available", "expiresAt": 2400},
+                   {"status": "consumed", "expiresAt": 2200}]
+        result = {"rateLimits": {"primary": {"usedPercent": 99}},
+                  "rateLimitsByLimitId": {"codex": quota},
+                  "rateLimitResetCredits": {"availableCount": 5, "credits": credits}}
+        reading = limits.codex_limits(result)
+        self.assertEqual(reading["windows"], [limits.window("5h", 12, 6000)])
+        self.assertEqual(reading["resets"], {"available": 5, "expires_at": 2400})
+        for details in (None, []):
+            result["rateLimitResetCredits"]["credits"] = details
+            self.assertEqual(limits.codex_limits(result)["resets"], {"available": 5, "expires_at": None})
+        result["rateLimitResetCredits"] = {"credits": credits}
+        self.assertEqual(limits.codex_limits(result)["resets"], {"available": 2, "expires_at": 2400})
+
+    def test_codex_selects_snapshot_timestamp_over_log_mtime(self):
+        day = self.tmp / "codex/2026/01/01"
+        day.mkdir(parents=True)
+        windows = {"primary": {"used_percent": 12, "window_minutes": 300, "resets_at": 6000}}
+
+        def event(epoch, bucket):
+            return json.dumps({"timestamp": datetime.fromtimestamp(epoch, timezone.utc).isoformat(),
+                               "payload": {"rate_limits": {**windows, "limit_id": bucket}}}) + "\n"
+
+        old = day / "rollout-old.jsonl"
+        old.write_text(event(1000, "codex") + event(4000, "other"))
+        os.utime(old, (4000, 4000))
+        current = day / "rollout-current.jsonl"
+        current.write_text(event(2200, "codex"))
+        os.utime(current, (2300, 2300))
+        self.assertEqual(limits.codex_logs(), (2200, [limits.window("5h", 12, 6000)]))
 
     def test_collect_preserves_codex_resets_and_kimi_monthly_breakdown(self):
         self.reg.write_text('[limits]\nagents = ["codex", "kimi"]\n')
@@ -628,6 +663,49 @@ console.log(JSON.stringify(input.windows.map((window) => {
         self.assertEqual([a["id"] for a in out["agents"]], ["codex", "kimi"])
         self.assertIsNone(out["agents"][0]["error"])
         self.assertIn("offline", out["agents"][1]["error"])
+
+    def test_antigravity_opt_in_normalizes_model_quota(self):
+        self.reg.write_text('[limits]\nagents = ["claude", "antigravity"]\n'
+                            '[limits.antigravity]\ncommand = ["quota-reader"]\n')
+        good = json.dumps({"quotas": [{"model": "Example", "remaining_percent": 68.5,
+                                       "reset_at": "1970-01-01T01:00:00+01:00"},
+                                      {"model": "Another", "remaining_percent": 40,
+                                       "reset_at": "1970-01-01T02:00:00Z"}]})
+        with mock.patch.object(limits.subprocess, "run") as command:
+            command.return_value = limits.subprocess.CompletedProcess([], 0, good, "")
+            out = limits.collect(now=1000, agents_override=["antigravity"])
+        self.assertEqual([a["id"] for a in out["agents"]], ["antigravity"])
+        self.assertEqual(out["agents"][0]["windows"], [
+            {"name": "Example", "used": 31.5, "resets_at": None, "reset": False},
+            {"name": "Another", "used": 60.0, "resets_at": 7200, "reset": False},
+        ])
+        self.assertEqual(command.call_args.args[0], ["quota-reader"])
+
+    @unittest.skipUnless(limits.shutil.which("node"), "Node is needed to execute the mod layout regression")
+    def test_single_window_spans_two_columns_and_countdown_carries(self):
+        source = (limits.HUB / "herdr-app/agent-limits/main.js").read_text()
+        source = "\n".join(line for line in source.splitlines() if not line.startswith("import "))
+        script = r'''const source = require("node:fs").readFileSync(0, "utf8");
+class View {}
+const element = new Proxy({}, {get: () => () => element});
+const draw = () => element;
+const AgentLimits = new Function("View", "v_flex", "h_flex", "div", "theme",
+  source.replace("export default", "") + "\nreturn {AgentLimits, span};");
+const {AgentLimits: Mod, span} = AgentLimits(View, draw, draw, draw, () => ({}));
+const view = new Mod();
+view.mark = draw;
+view.width = 300;
+view.data = {agents: [{id: "one", windows: [{}]}, {id: "two", windows: [{}, {}]}]};
+const widths = [];
+view.cell = (...args) => widths.push(args.at(-1));
+view.render();
+console.log(JSON.stringify({widths, times: [span(3599), span(7199), span(172799)]}));
+'''
+        result = limits.subprocess.run(["node", "-e", script], input=source, text=True, capture_output=True, check=True)
+        out = json.loads(result.stdout)
+        single, first, second = out["widths"]
+        self.assertEqual(single, first + second + 8)
+        self.assertEqual(out["times"], ["1h 0m", "2h 0m", "2d 0h"])
 
     def test_statusline_keeps_limits_and_chains(self):
         raw = json.dumps({"session_id": "abc", "rate_limits": {"five_hour": {"used_percentage": 3, "resets_at": 9}}})

@@ -52,14 +52,34 @@ herdr machine (`source.json`, written by the installer). Settings are `[limits]`
 |---|---|
 | `agents` | which agents, in order; default `["claude", "codex"]` |
 | `show` | `used` (0% = nothing spent, default) or `left` (100% = all left) |
-| `[limits.commands]` | any other agent (Cursor, Antigravity, ...): a command that prints `{"windows": [{"name", "used", "resets_at"}]}`, optionally `"resets": {"available", "expires_at"}` |
+| `[limits.commands]` | any other agent (Cursor, ...): a command that prints `{"windows": [{"name", "used", "resets_at"}]}`, optionally `"resets": {"available", "expires_at"}` |
+
+With one usage window, its bar spans the first two usage columns.
+
+Antigravity is opt-in. Google's [CLI documentation](https://antigravity.google/docs/cli/commands/usage)
+describes the interactive `/usage` panel. For automated polling, the kit runs a command you supply,
+with a 10 s timeout. The following JSON shape is the kit's adapter contract.
+
+```toml
+[limits]
+agents = ["codex", "antigravity"]
+
+[limits.antigravity]
+command = ["/absolute/path/to/antigravity-quota-reader"]
+```
+
+The command prints `{"quotas":[{"model":"Example","remaining_percent":70,"reset_at":"2026-12-01T12:00:00Z"}]}`.
+Use percentages from 0 to 100. Omit `reset_at` when unavailable, otherwise include a timezone in
+the timestamp. Each entry becomes one model window. Supply a read-only command for your installation.
+A live Antigravity installation has yet to be verified with this adapter. The generic
+`[limits.commands]` override also accepts the kit's standard window format.
 
 Built-in sources:
 
 | Agent | Source |
 |---|---|
 | Claude Code | `rate_limits` of the statusLine input. `limits.py statusline -- <old command>` wraps the statusLine, keeps one snapshot per session and runs the old command with the same input, so the visible line is unchanged. An idle session keeps showing what it saw last, maybe before a reset, so per window the latest `resets_at` wins and, within it, the highest usage. Snapshots of the GSD template's own tap are read too. |
-| Codex | the fresher of the newest `rate_limits` in `~/.codex/sessions` logs (written on every Codex turn, read on every refresh) and `codex app-server` `account/rateLimits/read` (also sees other machines and the available limit resets, `rateLimitResetCredits`; asked at most every 30 s, one start costs about a second) |
+| Codex | the fresher of the newest `rate_limits` in `~/.codex/sessions` logs (written on every Codex turn, read on every refresh) and `codex app-server` `account/rateLimits/read` (also sees other machines and the available limit resets from `rateLimitResetCredits.availableCount`; asked at most every 30 s, one start costs about a second) |
 | Kimi Code | `GET /usages` on the configured official Kimi Code endpoint. Shows the available 5h, 7d and monthly total windows; missing windows are omitted. `limit_month_code` is the Code share of the same monthly pool, shown in the `month` tooltip rather than as a separate limit. Once the window has renewed, its old breakdown is hidden until a new reading. Successes and errors are cached for 90 s. On failure, the last successful reading keeps its original timestamp and quota windows alongside the error. Requests are limited to official API and OAuth hosts and reject redirects. API keys stay bound to the endpoint in the provider configuration. |
 
 For Codex + Kimi, set `[limits] agents = ["codex", "kimi"]`; no Claude statusLine changes are needed.
@@ -74,6 +94,10 @@ After OAuth HTTP 401, the collector re-reads the durable credential to adopt a c
 ```sh
 herdr-app/install.py --dry-run --claude-statusline   # what it would change
 herdr-app/install.py --claude-statusline
+
+# Codex only, using an override in source.json
+python3 herdr-app/install.py --dry-run --agents codex
+python3 herdr-app/install.py --agents codex
 ```
 
 The installer copies both mods, writes `source.json`, and in each of the person's layouts that has
@@ -81,6 +105,7 @@ the shipped sidebar points the `spaces` block at `space-groups` and adds an `age
 under the agents list. Herdr's own layouts are read-only; when only `main` exists it writes a copy
 `kit`. `--claude-statusline` wraps the global statusLine of `~/.claude/settings.json` once (backup:
 `settings.json.pre-agent-limits`). Rerun it after an app update or a change of `[limits] agents`.
+`--agents` sets the collector command and panel height for this installation. The registry's agent list still applies when the flag is omitted.
 Removal: point the block back at `spaces`, delete the `agent-limits` block and the two mod folders.
 
 The GSD template's installer regenerates its `gsd-mission-control` layout from `main` and keeps
