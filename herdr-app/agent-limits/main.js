@@ -119,9 +119,11 @@ export default class AgentLimits extends View {
     const known = w.used !== null && w.used !== undefined;
     const value = known ? Math.round(show === "left" ? 100 - w.used : w.used) : null;
     const at = w.resets_at && w.resets_at > now ? w.resets_at : null;
+    const breakdown = (known && !w.reset ? w.breakdown ?? [] : []).map((part) => `${part.name}: ${part.used}% of monthly budget`).join("; ");
     const tip = (!known ? `${w.name}: renewed since the last reading`
       : `${w.name}: ${Math.round(w.used)}% used, ${Math.round(100 - w.used)}% left`)
-      + (at ? `\nresets ${full(at)} (in ${span(at - now)})` : "");
+      + (at ? `\nresets ${full(at)} (in ${span(at - now)})` : "")
+      + (breakdown ? `\n${breakdown}` : "");
     return v_flex().id(key).w(width).flex_none().gap(4).tooltip(tip)
       .child(h_flex().gap(4).text_size(10.5).items_center()
         .child(div().text_color(t.dim).child(w.name))
